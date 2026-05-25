@@ -1,6 +1,6 @@
 # posttrain-quant-serve
 
-Study repo for a two-week project: fine-tune a 7B model with FSDP, serve it with vLLM, quantize the fine-tuned checkpoint, then measure whether post-training changes quantizability.
+Study repo for fine-tuning a 7B model with FSDP, serving it with vLLM, quantizing the fine-tuned checkpoint, and measuring whether post-training changes quantizability.
 
 ## Research question
 
