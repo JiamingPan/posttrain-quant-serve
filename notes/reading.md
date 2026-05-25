@@ -1,5 +1,7 @@
 # Reading Queue
 
+Start with `notes/project-overview.md`. Then use this reading order.
+
 ## Day 0
 
 1. PyTorch FSDP getting-started tutorial

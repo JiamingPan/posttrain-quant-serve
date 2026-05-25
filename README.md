@@ -60,3 +60,5 @@ Do not touch the 7B model yet. First prove the smallest path works:
 3. Read enough FSDP/ZeRO to understand the memory tradeoff.
 4. Run a tiny single-GPU Qwen2.5-0.5B fine-tune for 50-100 steps.
 5. Confirm the run saves a checkpoint and can reload it.
+
+Start with `notes/project-overview.md` for the plain-English explanation of the project and learning path.
