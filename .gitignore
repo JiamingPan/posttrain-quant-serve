@@ -9,6 +9,7 @@ __pycache__/
 .env
 .venv/
 venv/
+.hf_cache/
 
 data/
 models/
@@ -16,6 +17,7 @@ checkpoints/
 outputs/
 results/raw/
 wandb/
+logs/
 
 *.log
 *.out

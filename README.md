@@ -23,7 +23,7 @@ Target model:
 
 Core stack:
 
-- PyTorch FSDP or torchtune for distributed fine-tuning
+- torchtune and PyTorch FSDP for distributed fine-tuning
 - vLLM for serving and throughput/latency benchmarking
 - AWQ, GPTQ, or local quantization diagnostics for quantization study
 - Slurm for Michigan GPU cluster runs
@@ -42,10 +42,21 @@ Core stack:
 
 ```text
 configs/      Training, serving, and quantization configs
-docs/         Study log and paper notes
+notes/        Study log, reading notes, and understanding checks
 scripts/      Runnable training, serving, benchmark, and analysis scripts
+slurm/        sbatch templates for cluster runs
 src/          Reusable project code
 results/      Curated result tables and plots
 ```
 
 Large local artifacts such as datasets, checkpoints, raw logs, and model outputs are ignored by git.
+
+## Day 0 Target
+
+Do not touch the 7B model yet. First prove the smallest path works:
+
+1. Create and verify the cluster Python/CUDA environment.
+2. Download the smoke-test model and main model metadata.
+3. Read enough FSDP/ZeRO to understand the memory tradeoff.
+4. Run a tiny single-GPU Qwen2.5-0.5B fine-tune for 50-100 steps.
+5. Confirm the run saves a checkpoint and can reload it.

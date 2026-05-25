@@ -1,0 +1,6 @@
+# Install after the fine-tuning smoke path works.
+# These packages are CUDA-sensitive; use a fresh environment if they conflict with training deps.
+
+vllm>=0.6.0
+autoawq>=0.2.6
+optimum>=1.23.0
