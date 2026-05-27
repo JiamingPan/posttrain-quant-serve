@@ -51,6 +51,9 @@ requested `#### <answer>` format exactly during early smoke runs.
 - `completions/mean_length`: tells whether outputs are becoming too long or getting clipped.
 - GPU peak memory: confirms whether the environment can support the next scale step.
 
+Use `notebooks/grpo_smoke_analysis.ipynb` after a run to inspect artifacts, completions, parser
+behavior, and Slurm logs.
+
 ## Batch Size Rule
 
 TRL requires the effective batch size to be divisible by `num_generations`:
