@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import fields
 import re
 from typing import Any
 
@@ -100,11 +101,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def build_grpo_config(**kwargs: Any) -> GRPOConfig:
+    """Build GRPOConfig while tolerating small TRL API differences."""
+    valid_fields = {field.name for field in fields(GRPOConfig)}
+    filtered = {key: value for key, value in kwargs.items() if key in valid_fields}
+    dropped = sorted(set(kwargs) - valid_fields)
+    if dropped:
+        print(f"Dropping unsupported GRPOConfig fields for this TRL version: {dropped}")
+    return GRPOConfig(**filtered)
+
+
 def main() -> None:
     args = parse_args()
     train_dataset = build_dataset(args.split, args.dataset_limit)
 
-    training_args = GRPOConfig(
+    training_args = build_grpo_config(
         output_dir=args.output_dir,
         max_steps=args.max_steps,
         num_generations=args.num_generations,

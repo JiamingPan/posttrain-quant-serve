@@ -65,6 +65,7 @@ So the smoke config satisfies the rule.
 | Reward std always zero | All group completions get identical reward | Increase completions or improve reward signal |
 | OOM on 0.5B | Environment/config error | Stop and investigate; do not shrink model further |
 | Checkpoint cannot resume | Wrong checkpoint path or max_steps not greater than checkpoint step | Resume from `checkpoint-N` and set max steps above N |
+| `GRPOConfig` unexpected keyword | TRL changed config field names across versions | `train_grpo_gsm8k.py` filters unsupported config keys and prints what it dropped |
 
 ## Interview Explanation
 
