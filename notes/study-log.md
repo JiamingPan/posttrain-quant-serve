@@ -32,3 +32,43 @@ Day 0 success condition:
 - `scripts/cluster_check.py` reports CUDA and the expected GPU.
 - A torchtune single-GPU run starts, consumes data, logs loss, and writes a checkpoint.
 - The exact command, config path, GPU type, memory usage, and failure/fix notes are recorded here.
+
+## 2026-05-26
+
+Project pivot: SFT fine-tuning path replaced by GRPO RL post-training.
+
+Reason:
+
+- Updated five-month plan prioritizes RL/post-training.
+- GSM8K gives verifiable rewards, so the smoke test can use rule-based reward checking rather
+  than a learned reward model.
+- The research question is now: does RL post-training change quantization behavior?
+
+Great Lakes environment notes:
+
+- Repo should live under `/scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve`,
+  not `$HOME`, because `$HOME` filled during package installs.
+- Environment path:
+  `/scratch/huterer_root/huterer0/jiamingp/pqs/envs/posttrain-quant-serve`.
+- HF cache path:
+  `/scratch/huterer_root/huterer0/jiamingp/pqs/hf_cache`.
+- Working package stack found during setup:
+  `torch==2.8.0+cu128`, `torchao==0.14.1`, `kagglehub==1.0.0`,
+  `kagglesdk==0.1.24`.
+
+Day 0 GRPO smoke status:
+
+```text
+# Fill in after smoke run completes:
+# - shape-check command:
+# - smoke command:
+# - reload command:
+# - GPU type:
+# - peak GPU memory:
+# - steps:
+# - reward start -> end:
+# - KL start -> end:
+# - checkpoint path:
+# - reload check:
+# - errors / fixes:
+```

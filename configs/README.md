@@ -1,17 +1,16 @@
 # Configs
 
-Use torchtune's built-in configs as the source of truth, then commit only the small edited configs needed to reproduce a run.
+The Day 0 GRPO smoke path is script-driven and does not require a YAML config.
 
-For the Day 0 smoke test:
+Primary entry point:
 
 ```bash
-bash scripts/prepare_torchtune_config.sh
+bash scripts/run_grpo_smoke.sh
 ```
 
-This copies the closest official Qwen full-finetune single-device config into:
+Keep this directory for later reproducibility configs:
 
-```text
-configs/smoke_qwen2_5_0_5b.yaml
-```
-
-After copying, keep edits small and record any important config changes in `notes/study-log.md`.
+- Accelerate configs for multi-GPU GRPO
+- vLLM serving configs
+- AWQ quantization configs
+- Eval prompt/config files

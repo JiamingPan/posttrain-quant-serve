@@ -1,10 +1,13 @@
 # Install PyTorch separately with the CUDA build required by the cluster.
-# Example: follow the cluster module/CUDA documentation, then install this file.
+# Great Lakes tested base: install torch separately:
+#   torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0
+# from the cu128 PyTorch index.
 
-torchtune>=0.5.0
 transformers>=4.45.0
 datasets>=3.0.0
 accelerate>=1.0.0
+trl>=0.17.0
+peft>=0.14.0
 huggingface_hub>=0.26.0
 safetensors>=0.4.5
 sentencepiece>=0.2.0

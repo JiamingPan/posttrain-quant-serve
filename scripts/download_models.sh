@@ -6,5 +6,4 @@ set -euo pipefail
 
 export HF_HOME
 
-huggingface-cli download Qwen/Qwen2.5-0.5B
-huggingface-cli download Qwen/Qwen2.5-7B
+huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct

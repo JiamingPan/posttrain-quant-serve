@@ -9,6 +9,7 @@ __pycache__/
 .env
 .venv/
 venv/
+.venv_*/
 .hf_cache/
 
 data/
@@ -18,6 +19,7 @@ outputs/
 results/raw/
 wandb/
 logs/
+hf_cache/
 
 *.log
 *.out

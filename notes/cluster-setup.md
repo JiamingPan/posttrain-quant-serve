@@ -1,18 +1,32 @@
 # Cluster Setup Notes
 
-Run these on the Slurm cluster, not on a login shell without GPUs.
+Run these on the Slurm cluster. The repo, virtual environment, Hugging Face cache, and checkpoints should live on scratch, not in `$HOME`.
 
 ## Environment
 
-Create a fresh environment and install the PyTorch build that matches the cluster CUDA module.
+Great Lakes path used for this project:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
+export PQS_ROOT=/scratch/huterer_root/huterer0/jiamingp/pqs
+```
 
-# Install torch/torchvision/torchaudio from the cluster-recommended CUDA index.
-# Then:
+Create the environment:
+
+```bash
+module purge
+module load python/3.11.5
+module load cuda/12.8.1
+
+mkdir -p "$PQS_ROOT/envs" "$PQS_ROOT/pip-cache" "$PQS_ROOT/hf_cache" "$PQS_ROOT/ckpts"
+python -m venv "$PQS_ROOT/envs/posttrain-quant-serve"
+source "$PQS_ROOT/envs/posttrain-quant-serve/bin/activate"
+
+export PYTHONNOUSERSITE=1
+export PIP_CACHE_DIR="$PQS_ROOT/pip-cache"
+export HF_HOME="$PQS_ROOT/hf_cache"
+
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 python -m pip install -r requirements.txt
 ```
 
@@ -20,26 +34,26 @@ Verify CUDA:
 
 ```bash
 nvidia-smi
-python scripts/cluster_check.py
+python - <<'PY'
+import torch
+from trl import GRPOTrainer
+print("torch", torch.__version__, "cuda", torch.version.cuda)
+print("GRPOTrainer import OK")
+PY
 ```
 
 ## Hugging Face
 
+## Day 0 GRPO Smoke
+
+Submit the 5-step shape check:
+
 ```bash
-huggingface-cli login
-bash scripts/download_models.sh
+sbatch --export=ALL,MAX_STEPS=5,DATASET_LIMIT=10 slurm/smoke_single_gpu.sbatch
 ```
 
-## torchtune Config
-
-Use torchtune's official config as the source of truth:
+If clean, submit the 100-step smoke:
 
 ```bash
-bash scripts/prepare_torchtune_config.sh
-```
-
-Then launch the smoke run:
-
-```bash
-CONFIG=configs/smoke_qwen2_5_0_5b.yaml MAX_STEPS=100 bash scripts/finetune.sh
+sbatch --export=ALL,MAX_STEPS=100,DATASET_LIMIT=10 slurm/smoke_single_gpu.sbatch
 ```
