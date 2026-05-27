@@ -4,62 +4,10 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import fields
-import re
-from typing import Any
 
 from datasets import load_dataset
+from gsm8k_reward import gsm8k_exact_match_reward
 from trl import GRPOConfig, GRPOTrainer
-
-
-FINAL_ANSWER_RE = re.compile(r"####\s*([-+]?\d[\d,]*(?:\.\d+)?)")
-NUMBER_RE = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
-
-
-def normalize_number(value: str | None) -> str | None:
-    if value is None:
-        return None
-    return value.replace(",", "").strip()
-
-
-def extract_reference_answer(answer: str) -> str | None:
-    match = FINAL_ANSWER_RE.search(answer)
-    if match:
-        return normalize_number(match.group(1))
-    numbers = NUMBER_RE.findall(answer)
-    return normalize_number(numbers[-1]) if numbers else None
-
-
-def completion_to_text(completion: Any) -> str:
-    """Handle both standard string completions and chat-message completions."""
-    if isinstance(completion, str):
-        return completion
-    if isinstance(completion, list):
-        parts: list[str] = []
-        for item in completion:
-            if isinstance(item, dict) and "content" in item:
-                parts.append(str(item["content"]))
-            else:
-                parts.append(str(item))
-        return "\n".join(parts)
-    return str(completion)
-
-
-def extract_model_answer(completion: Any) -> str | None:
-    text = completion_to_text(completion)
-    final_match = FINAL_ANSWER_RE.search(text)
-    if final_match:
-        return normalize_number(final_match.group(1))
-    numbers = NUMBER_RE.findall(text)
-    return normalize_number(numbers[-1]) if numbers else None
-
-
-def gsm8k_exact_match_reward(completions: list[Any], answer: list[str], **_: Any) -> list[float]:
-    rewards: list[float] = []
-    for completion, reference in zip(completions, answer, strict=False):
-        pred = extract_model_answer(completion)
-        target = extract_reference_answer(reference)
-        rewards.append(1.0 if pred is not None and target is not None and pred == target else 0.0)
-    return rewards
 
 
 def format_prompt(question: str) -> str:

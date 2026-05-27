@@ -31,6 +31,18 @@ The prompt asks the model to end with:
 
 The reward code still falls back to the last number in the completion if the format is missing.
 
+The parser gives priority to explicit final-answer patterns before using that fallback:
+
+- `#### 312`
+- `<answer>312</answer>`
+- `#### <answer>312</answer>`
+- `Final answer: 8`
+- `the answer is 312`
+- `direct numeric answer ... 8`
+
+This matters because Qwen2.5-0.5B-Instruct often emits a valid final number without following the
+requested `#### <answer>` format exactly during early smoke runs.
+
 ## Metrics To Watch
 
 - `reward`: should be noisy but not broken; on 10 examples it may not rise smoothly.
@@ -66,6 +78,7 @@ So the smoke config satisfies the rule.
 | OOM on 0.5B | Environment/config error | Stop and investigate; do not shrink model further |
 | Checkpoint cannot resume | Wrong checkpoint path or max_steps not greater than checkpoint step | Resume from `checkpoint-N` and set max steps above N |
 | `GRPOConfig` unexpected keyword | TRL changed config field names across versions | `train_grpo_gsm8k.py` filters unsupported config keys and prints what it dropped |
+| Correct-looking answer gets reward 0 | Answer parser is missing the model's format | Add a parser case to `scripts/check_reward_parser.py`, then patch `scripts/gsm8k_reward.py` |
 
 ## Interview Explanation
 
