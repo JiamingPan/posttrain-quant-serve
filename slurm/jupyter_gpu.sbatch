@@ -25,6 +25,20 @@ source scripts/activate_great_lakes.sh
 
 unset XDG_RUNTIME_DIR
 
+if ! python -m jupyter --version >/dev/null 2>&1; then
+  cat >&2 <<'EOT'
+Jupyter is not installed in the active project environment.
+
+Install it once from the repo root:
+
+  source scripts/activate_great_lakes.sh
+  python -m pip install -r requirements.txt
+
+Then resubmit this Slurm job.
+EOT
+  exit 1
+fi
+
 NOTEBOOK_DIR="$SLURM_SUBMIT_DIR/notebooks"
 INFO_FILE="$SLURM_SUBMIT_DIR/jupyter_info_gpu.txt"
 
