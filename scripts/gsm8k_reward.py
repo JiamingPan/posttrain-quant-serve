@@ -16,6 +16,11 @@ FINAL_PHRASE_RE = re.compile(
     rf"[^-\d+]{{0,80}}({NUMBER_PATTERN})",
     re.IGNORECASE,
 )
+PROMPT_LEAK_AFTER_ANSWER_RE = re.compile(
+    r"Human:|Assistant:|Problem:|Solve the math problem|</div>|Question:",
+    re.IGNORECASE,
+)
+PROMPT_LEAK_AFTER_ANSWER_PENALTY = 0.25
 
 
 def normalize_number(value: str | None) -> str | None:
@@ -51,6 +56,15 @@ def last_match(pattern: re.Pattern[str], text: str) -> str | None:
     return normalize_number(matches[-1].group(1))
 
 
+def last_match_with_end(pattern: re.Pattern[str], text: str) -> tuple[str, int] | None:
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return None
+    match = matches[-1]
+    value = normalize_number(match.group(1))
+    return (value, match.end()) if value is not None else None
+
+
 def extract_reference_answer(answer: str) -> str | None:
     for pattern in (HASH_ANSWER_RE, ANSWER_TAG_RE):
         value = last_match(pattern, answer)
@@ -73,10 +87,40 @@ def extract_model_answer(completion: Any) -> str | None:
     return normalize_number(numbers[-1]) if numbers else None
 
 
+def extract_model_answer_with_end(completion: Any) -> tuple[str, int] | None:
+    """Return the parsed model answer and where that answer pattern ends."""
+    text = completion_to_text(completion)
+
+    for pattern in (ANSWER_TAG_RE, HASH_ANSWER_RE, FINAL_PHRASE_RE):
+        value = last_match_with_end(pattern, text)
+        if value is not None:
+            return value
+
+    matches = list(NUMBER_RE.finditer(text))
+    if not matches:
+        return None
+    match = matches[-1]
+    value = normalize_number(match.group(0))
+    return (value, match.end()) if value is not None else None
+
+
+def has_prompt_leak_after_answer(completion: Any) -> bool:
+    """Detect prompt-like text after the parsed answer span."""
+    text = completion_to_text(completion)
+    parsed = extract_model_answer_with_end(text)
+    if parsed is None:
+        return False
+    _, answer_end = parsed
+    return bool(PROMPT_LEAK_AFTER_ANSWER_RE.search(text[answer_end:]))
+
+
 def gsm8k_exact_match_reward(completions: list[Any], answer: list[str], **_: Any) -> list[float]:
     rewards: list[float] = []
     for completion, reference in zip(completions, answer):
         pred = extract_model_answer(completion)
         target = extract_reference_answer(reference)
-        rewards.append(1.0 if pred is not None and target is not None and pred == target else 0.0)
+        reward = 1.0 if pred is not None and target is not None and pred == target else 0.0
+        if has_prompt_leak_after_answer(completion):
+            reward -= PROMPT_LEAK_AFTER_ANSWER_PENALTY
+        rewards.append(reward)
     return rewards

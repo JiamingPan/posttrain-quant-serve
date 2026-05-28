@@ -23,6 +23,23 @@ reward = 1.0 if extracted final numeric answer equals the GSM8K target
 reward = 0.0 otherwise
 ```
 
+After the 100-step smoke run, prompt leakage was added as a small penalty:
+
+```text
+reward -= 0.25 if prompt-like text appears after the parsed answer
+```
+
+Examples:
+
+- clean correct answer: `1.0`
+- leaky correct answer: `0.75`
+- clean wrong answer: `0.0`
+- leaky wrong answer: `-0.25`
+
+This keeps answer correctness as the main signal while teaching the model that continuing into
+`Human:`, `Problem:`, `Question:`, or similar prompt-like text after the answer is worse than
+stopping cleanly.
+
 The prompt asks the model to end with:
 
 ```text
