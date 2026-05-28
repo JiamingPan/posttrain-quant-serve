@@ -16,7 +16,8 @@ running anything larger.
 - [ ] Compare base Qwen2.5-0.5B-Instruct vs the 100-step GRPO checkpoint with
   `slurm/eval_gsm8k_compare.sbatch`.
 - [ ] Rerun a 5-step GRPO check with the prompt-leak reward penalty and confirm
-  `prompt_leak_rate` moves down before launching a longer run.
+  the new reward values appear. Do not expect leakage rate to move meaningfully in only 5 steps.
+- [ ] Use a longer follow-up run to compare `prompt_leak_rate` before vs after the penalty.
 - [ ] If rewards are nonzero sometimes, run the next smoke job with more examples, not a bigger model.
 - [ ] If rewards are still effectively zero, improve prompt/reward behavior before more training.
 
