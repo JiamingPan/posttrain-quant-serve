@@ -75,7 +75,7 @@ def extract_model_answer(completion: Any) -> str | None:
 
 def gsm8k_exact_match_reward(completions: list[Any], answer: list[str], **_: Any) -> list[float]:
     rewards: list[float] = []
-    for completion, reference in zip(completions, answer, strict=False):
+    for completion, reference in zip(completions, answer):
         pred = extract_model_answer(completion)
         target = extract_reference_answer(reference)
         rewards.append(1.0 if pred is not None and target is not None and pred == target else 0.0)
