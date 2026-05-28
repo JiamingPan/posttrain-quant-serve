@@ -32,7 +32,7 @@ Jupyter is not installed in the active project environment.
 Install it once from the repo root:
 
   source scripts/activate_great_lakes.sh
-  python -m pip install -r requirements.txt
+  python -m pip install 'notebook>=7.0.0' 'ipykernel>=6.29.0'
 
 Then resubmit this Slurm job.
 EOT
