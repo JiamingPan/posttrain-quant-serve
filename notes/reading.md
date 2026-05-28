@@ -18,6 +18,18 @@ Start with `notes/project-overview.md`. Then use this reading order.
 2. PyTorch FSDP / ZeRO refresher
    - Extract: how to scale the policy model once single-GPU GRPO works.
 
+## Day 2
+
+1. DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models
+   - URL: https://arxiv.org/abs/2402.03300
+   - Extract: GRPO objective, group-relative advantages, KL penalty, and math reward setup.
+2. Training Verifiers to Solve Math Word Problems
+   - URL: https://arxiv.org/abs/2110.14168
+   - Extract: what GSM8K measures and why exact final-answer checking is useful.
+3. TRL GRPOTrainer docs
+   - URL: https://huggingface.co/docs/trl/grpo_trainer
+   - Extract: logged metrics, completion logging, reward function contract, generation settings.
+
 ## Later
 
 1. vLLM/PagedAttention

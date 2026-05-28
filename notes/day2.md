@@ -13,6 +13,8 @@ running anything larger.
   formatting failures.
 - [ ] Record reward mean/std, KL if available, runtime, checkpoint path, and warnings in
   `notes/study-log.md`.
+- [ ] Compare base Qwen2.5-0.5B-Instruct vs the 100-step GRPO checkpoint with
+  `slurm/eval_gsm8k_compare.sbatch`.
 - [ ] If rewards are nonzero sometimes, run the next smoke job with more examples, not a bigger model.
 - [ ] If rewards are still effectively zero, improve prompt/reward behavior before more training.
 
