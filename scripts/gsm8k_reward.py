@@ -17,7 +17,8 @@ FINAL_PHRASE_RE = re.compile(
     re.IGNORECASE,
 )
 PROMPT_LEAK_AFTER_ANSWER_RE = re.compile(
-    r"Human:|Assistant:|Problem:|Solve the math problem|</div>|Question:",
+    r"Human:|Assistant:|Problem:|Solve the math problem|</div>|Question:|"
+    r"You are given|Write a program|takes the .* as input|Return the",
     re.IGNORECASE,
 )
 PROMPT_LEAK_AFTER_ANSWER_PENALTY = 0.25

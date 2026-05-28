@@ -6,19 +6,12 @@ import argparse
 import csv
 import json
 import os
-import re
 from pathlib import Path
 
 import torch
 from datasets import load_dataset
-from gsm8k_reward import extract_model_answer, extract_reference_answer
+from gsm8k_reward import extract_model_answer, extract_reference_answer, has_prompt_leak_after_answer
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
-
-PROMPT_LEAK_RE = re.compile(
-    r"Human:|Assistant:|Problem:|Solve the math problem|</div>|Question:",
-    re.IGNORECASE,
-)
 
 
 def format_prompt(question: str) -> str:
@@ -140,7 +133,7 @@ def evaluate_model(
             )
             pred = extract_model_answer(completion)
             is_correct = pred is not None and pred == row["target_answer"]
-            leak = bool(PROMPT_LEAK_RE.search(completion))
+            leak = has_prompt_leak_after_answer(completion)
             correct += int(is_correct)
             parsed += int(pred is not None)
             prompt_leaks += int(leak)

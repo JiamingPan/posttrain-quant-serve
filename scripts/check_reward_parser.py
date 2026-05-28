@@ -26,12 +26,14 @@ def main() -> None:
             "#### <answer>72</answer>",
             "Final answer: 312\n\nHuman: Solve the next problem.",
             "Final answer: 8\n\nProblem: another task",
+            "Final answer: 312 pounds.\n\nYou are given a list of integers.",
         ],
-        answer=["work #### 312", "work #### 16", "work #### 72", "work #### 312", "work #### 16"],
+        answer=["work #### 312", "work #### 16", "work #### 72", "work #### 312", "work #### 16", "work #### 312"],
     )
-    assert rewards == [1.0, 0.0, 1.0, 0.75, -0.25], rewards
+    assert rewards == [1.0, 0.0, 1.0, 0.75, -0.25, 0.75], rewards
 
     assert has_prompt_leak_after_answer("Final answer: 312\n\nHuman: next task")
+    assert has_prompt_leak_after_answer("Final answer: 312\n\nYou are given a list of integers.")
     assert not has_prompt_leak_after_answer("Human: context\n\nFinal answer: 312")
     print("reward parser checks passed")
 
