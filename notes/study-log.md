@@ -120,3 +120,60 @@ sbatch \
   tokenizer PAD/BOS/EOS alignment warning. None stopped the run.
 - Current conclusion: the GRPO toolchain works end-to-end for Qwen2.5-0.5B-Instruct on one A40.
   The next blocker is understanding reward/completion quality, not cluster setup.
+
+## 2026-05-28
+
+Completion analysis for job `50954114`:
+
+- Notebook loaded `400` completion rows from:
+  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_100step/completions`.
+- Columns found: `step`, `prompt`, `completion`, `gsm8k_exact_match_reward`, `advantage`,
+  `source_file`.
+- Reward signal:
+  - `gsm8k_exact_match_reward_mean = 0.235`
+  - max reward `1.0`
+  - reward std about `0.4245`
+- Answer extraction rate: `1.0`.
+- Prompt leakage rate: `0.2025`.
+- Interpretation: the smoke run is valid and has a live reward signal, but output cleanliness needs
+  work before scaling. `checkpoint-100` should now be evaluated against the base model.
+
+Prompt-leak reward penalty:
+
+- Added a small penalty after the parsed answer:
+
+```text
+clean correct: 1.0
+leaky correct: 0.75
+clean wrong: 0.0
+leaky wrong: -0.25
+```
+
+- Parser test passed locally with the new reward behavior.
+
+5-step leak-penalty check:
+
+```bash
+sbatch --job-name=pqs-grpo-leakfix \
+  --account=cavestru0 \
+  --partition=spgpu \
+  --gres=gpu:1 \
+  --cpus-per-task=4 \
+  --mem=32G \
+  --time=00:20:00 \
+  --output=logs/%x-%j.out \
+  --error=logs/%x-%j.err \
+  --export=ALL,MAX_STEPS=5,DATASET_LIMIT=10,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_5step \
+  slurm/smoke_single_gpu.sbatch
+```
+
+- Job `51051394`, `pqs-grpo-leakfix`, completed in `00:08:42`, exit code `0:0`.
+- Checkpoint path:
+  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_5step`.
+- Log tail showed sampled completions still rambling, which is expected for only 5 steps. This run
+  verifies the modified reward path executes; it does not prove leakage has improved.
+
+Next:
+
+1. Run `slurm/eval_gsm8k_compare.sbatch` for base vs `checkpoint-100`.
+2. If evaluation is sane, run a longer leak-penalty follow-up and compare prompt leakage before/after.
