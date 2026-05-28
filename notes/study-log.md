@@ -56,19 +56,67 @@ Great Lakes environment notes:
   `torch==2.8.0+cu128`, `torchao==0.14.1`, `kagglehub==1.0.0`,
   `kagglesdk==0.1.24`.
 
-Day 0 GRPO smoke status:
+Day 0 / Day 1 GRPO smoke result:
 
-```text
-# Fill in after smoke run completes:
-# - shape-check command:
-# - smoke command:
-# - reload command:
-# - GPU type:
-# - peak GPU memory:
-# - steps:
-# - reward start -> end:
-# - KL start -> end:
-# - checkpoint path:
-# - reload check:
-# - errors / fixes:
+- Shape-check job:
+
+```bash
+sbatch \
+  --job-name=pqs-grpo-shape \
+  --account=cavestru0 \
+  --partition=spgpu \
+  --gres=gpu:1 \
+  --cpus-per-task=4 \
+  --mem=32G \
+  --time=00:45:00 \
+  --output=logs/%x-%j.out \
+  --error=logs/%x-%j.err \
+  --export=ALL,MAX_STEPS=5,DATASET_LIMIT=10 \
+  slurm/smoke_single_gpu.sbatch
 ```
+
+- Shape-check result: job `50951560`, completed in `00:03:57`, exit code `0:0`.
+- GPU from shape-check log: NVIDIA A40, 44.4 GiB.
+- Shape-check checkpoint path:
+  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo/checkpoint-5`.
+
+- Resume check: job `50952454`, completed in `00:03:58`, exit code `0:0`; resumed from
+  `checkpoint-5` and continued to step 10. Nonfatal warning observed:
+  missing checkpoint key `lm_head.weight`.
+
+- Parser fix check: job `50952893`, completed in `00:03:48`, exit code `0:0`; output path:
+  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_parser_fix`.
+
+- 100-step smoke command:
+
+```bash
+sbatch \
+  --job-name=pqs-grpo-100 \
+  --account=cavestru0 \
+  --partition=spgpu \
+  --gres=gpu:1 \
+  --cpus-per-task=4 \
+  --mem=32G \
+  --time=00:40:00 \
+  --output=logs/%x-%j.out \
+  --error=logs/%x-%j.err \
+  --export=ALL,MAX_STEPS=100,DATASET_LIMIT=10,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_100step \
+  slurm/smoke_single_gpu.sbatch
+```
+
+- 100-step result: job `50954114`, completed in `00:18:46`, exit code `0:0`.
+- Training progress: reached `100/100`; logged runtime `971.4` seconds and `0.103` steps/second.
+- Checkpoint path:
+  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_100step/checkpoint-100`.
+- Other saved checkpoint: `checkpoint-95`.
+- Peak GPU memory: not captured in the pasted log; add explicit memory logging before using this as
+  a scaling estimate.
+- Reward/KL status: the two printed completions at step 100 had `gsm8k_exact_match_reward=0.00`
+  and `Advantage=-0.50`. This does not prove every completion had zero reward because TRL only
+  prints two completions. Inspect the saved `completions/` files before deciding whether the reward
+  signal is broken.
+- Warnings:
+  unauthenticated Hugging Face requests; Great Lakes kernel below Accelerate's recommended version;
+  tokenizer PAD/BOS/EOS alignment warning. None stopped the run.
+- Current conclusion: the GRPO toolchain works end-to-end for Qwen2.5-0.5B-Instruct on one A40.
+  The next blocker is understanding reward/completion quality, not cluster setup.

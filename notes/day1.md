@@ -21,3 +21,17 @@ Goal: make the GRPO smoke path reliable, not bigger.
 ## Stop Condition
 
 Day 1 is done when the 100-step Qwen2.5-0.5B-Instruct GRPO smoke run has a checkpoint that resumes.
+
+## Current Status
+
+Done:
+
+- 5-step GRPO shape check completed.
+- Resume check from `checkpoint-5` completed and continued to step 10.
+- 100-step GRPO smoke run completed and saved `checkpoint-100`.
+
+Next:
+
+- Inspect the saved completion logs, not just the printed Slurm tail.
+- Decide whether the reward signal is usable before increasing dataset size or steps.
+- Do not scale model size until the reward/completion behavior is understood.
