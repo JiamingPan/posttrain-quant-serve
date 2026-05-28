@@ -177,3 +177,36 @@ Next:
 
 1. Run `slurm/eval_gsm8k_compare.sbatch` for base vs `checkpoint-100`.
 2. If evaluation is sane, run a longer leak-penalty follow-up and compare prompt leakage before/after.
+
+Base-vs-trained sanity evaluation:
+
+```bash
+sbatch --account=cavestru0 --time=00:30:00 \
+  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_100step \
+  slurm/eval_gsm8k_compare.sbatch
+```
+
+- Job `51062503`, `pqs-gsm8k-eval`, completed in `00:07:23`, exit code `0:0`.
+- Output path:
+  `/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_100step`.
+- Base `Qwen/Qwen2.5-0.5B-Instruct` on first 10 GSM8K train examples:
+  - accuracy `0.6`
+  - correct `6/10`
+  - parse rate `1.0`
+  - prompt leak rate `0.4`
+- Trained `checkpoint-100`:
+  - accuracy `0.5`
+  - correct `5/10`
+  - parse rate `1.0`
+  - prompt leak rate `0.4`
+- Delta accuracy: `-0.1`.
+- Paired comparison: `0` improved, `1` worsened, `9` unchanged.
+
+Interpretation:
+
+- This is a negative result for the trained checkpoint, but only by one question on a tiny 10-example
+  sanity set.
+- The 100-step checkpoint should be treated as a pipeline smoke artifact, not as a useful improved
+  model.
+- Do not scale model size from this checkpoint. First inspect the worsened example and run a longer
+  leak-penalty experiment or improve reward/prompt settings.

@@ -62,3 +62,27 @@ sbatch --account=cavestru0 --time=01:00:00 \
 
 Expected result for a tiny 100-step run: maybe little or no test improvement. That is fine. The goal
 is to build the measurement harness before doing a larger run.
+
+## First Sanity Result
+
+The first train-10 comparison produced:
+
+```text
+base:    6/10 = 0.60
+trained: 5/10 = 0.50
+delta:  -0.10
+paired: 0 improved, 1 worsened, 9 unchanged
+```
+
+Interpretation:
+
+- The 100-step checkpoint is not better than the base model on this tiny sanity set.
+- This does not mean GRPO cannot work. It means this specific run is only a smoke artifact.
+- The next debugging target is not bigger training; it is inspecting the worsened example and
+  improving the reward/prompt/generation setup.
+
+Inspect:
+
+```bash
+cat /scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_100step/paired_comparison.csv
+```

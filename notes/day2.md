@@ -13,8 +13,9 @@ running anything larger.
   formatting failures.
 - [x] Record reward mean/std, KL if available, runtime, checkpoint path, and warnings in
   `notes/study-log.md`.
-- [ ] Compare base Qwen2.5-0.5B-Instruct vs the 100-step GRPO checkpoint with
+- [x] Compare base Qwen2.5-0.5B-Instruct vs the 100-step GRPO checkpoint with
   `slurm/eval_gsm8k_compare.sbatch`.
+- [ ] Inspect the worsened paired-comparison example from the train-10 eval.
 - [x] Rerun a 5-step GRPO check with the prompt-leak reward penalty and confirm
   the new reward values appear. Do not expect leakage rate to move meaningfully in only 5 steps.
 - [ ] Use a longer follow-up run to compare `prompt_leak_rate` before vs after the penalty.
@@ -25,7 +26,7 @@ running anything larger.
 
 The next training run should be one of:
 
-- reward signal looks usable: run base-vs-trained eval, then `MAX_STEPS=300`, `DATASET_LIMIT=50`,
+- reward signal looks usable but eval worsens: inspect paired outputs, then run `MAX_STEPS=300`, `DATASET_LIMIT=50`,
   same Qwen2.5-0.5B-Instruct model with the leak penalty.
 - reward signal is broken: patch prompt/reward/parser and rerun a 5-step check.
 
