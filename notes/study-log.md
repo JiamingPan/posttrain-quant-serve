@@ -256,3 +256,46 @@ Next:
 1. Run `notebooks/grpo_smoke_analysis.ipynb` on Great Lakes.
 2. Compare `prompt_leak_rate` for `baseline_100step` vs `leak_penalty_300step`.
 3. If leakage improves, run base-vs-trained eval for `checkpoint-300`.
+
+
+## 2026-05-29
+
+Day 2 closeout and Day 3 start.
+
+300-step leak-penalty base-vs-trained eval:
+
+```bash
+sbatch --account=cavestru0 --time=00:45:00 \
+  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_leak300 \
+  slurm/eval_gsm8k_compare.sbatch
+```
+
+- Job `51091160`, `pqs-gsm8k-eval`, completed in `00:03:56`, exit code `0:0`.
+- Base `Qwen/Qwen2.5-0.5B-Instruct` on first 10 GSM8K train examples:
+  - accuracy `0.6` (`6/10`)
+  - parse rate `1.0`
+  - prompt leak rate `0.5`
+  - reference PPL `1.8783`
+- Trained `qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k`:
+  - accuracy `0.2` (`2/10`)
+  - parse rate `1.0`
+  - prompt leak rate `0.5`
+  - reference PPL `1.9337`
+- Delta accuracy: `-0.4`.
+- Reference PPL ratio: `1.0295`, worse for the trained checkpoint.
+- Paired comparison: `0` improved, `4` worsened, `6` unchanged.
+
+Interpretation:
+
+- The 300-step leak-penalty checkpoint is not an improved model.
+- Training-completion leakage improved in the notebook, but deterministic eval leakage did not improve
+  against the original base model.
+- Do not scale this checkpoint and do not start quantization from it except as a known-bad control.
+- Day 3 should diagnose worsened examples and tighten prompt/generation stopping behavior.
+
+Day 3 repo changes:
+
+- Tightened the train/eval prompt to require one final `#### <answer>` line and then stop.
+- Reduced default training `max_completion_length` from `256` to `128`.
+- Reduced default eval `max_new_tokens` from `192` to `96`.
+- Added `notes/day3.md` with the diagnosis checklist and small format-fix smoke command.

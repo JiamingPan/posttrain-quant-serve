@@ -9,6 +9,7 @@ set -euo pipefail
 : "${NUM_GENERATIONS:=4}"
 : "${BATCH_SIZE:=1}"
 : "${GRAD_ACCUM:=4}"
+: "${MAX_COMPLETION_LENGTH:=128}"
 : "${RESUME_FROM_CHECKPOINT:=}"
 
 mkdir -p "$(dirname "$OUTPUT_DIR")" "${HF_HOME:-$PQS_ROOT/hf_cache}" "${HF_DATASETS_CACHE:-$PQS_ROOT/hf_datasets}"
@@ -22,6 +23,7 @@ cmd=(
   --num_generations "$NUM_GENERATIONS"
   --per_device_train_batch_size "$BATCH_SIZE"
   --gradient_accumulation_steps "$GRAD_ACCUM"
+  --max_completion_length "$MAX_COMPLETION_LENGTH"
 )
 
 if [[ -n "$RESUME_FROM_CHECKPOINT" ]]; then

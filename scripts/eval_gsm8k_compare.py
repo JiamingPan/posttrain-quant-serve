@@ -17,8 +17,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 def format_prompt(question: str) -> str:
     return (
-        "Solve the math problem. Show the reasoning briefly, then put the final numeric answer "
-        "on its own line in the form #### <answer>.\n\n"
+        "Solve the math problem. Show the reasoning briefly. End with exactly one final line "
+        "in the form #### <answer>, then stop. Do not write another problem or dialogue "
+        "after the answer.\n\n"
         f"Problem: {question}\n\nSolution:"
     )
 
@@ -36,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--max_prompt_length", type=int, default=1024)
     parser.add_argument("--max_reference_tokens", type=int, default=512)
-    parser.add_argument("--max_new_tokens", type=int, default=192)
+    parser.add_argument("--max_new_tokens", type=int, default=96)
     parser.add_argument("--skip_reference_ppl", action="store_true")
     parser.add_argument("--trust_remote_code", action="store_true")
     return parser.parse_args()

@@ -1,7 +1,9 @@
 # Day 2 Checklist
 
-Goal: inspect the completed 100-step GRPO smoke run and make the reward signal reliable before
-running anything larger.
+Status: complete. Day 2 was a negative-result evaluation day, not a model-improvement day.
+
+Goal: inspect the completed 100-step GRPO smoke run, make the reward signal measurable, test a
+prompt-leak penalty, and decide whether the 0.5B path is ready to scale.
 
 ## Tasks
 
@@ -11,24 +13,42 @@ running anything larger.
 - [x] Record whether any completions receive reward `1.0`.
 - [x] Check for prompt leakage, repeated `Human:` text, clipped completions, and final-answer
   formatting failures.
-- [x] Record reward mean/std, KL if available, runtime, checkpoint path, and warnings in
-  `notes/study-log.md`.
+- [x] Record reward mean/std, runtime, checkpoint path, and warnings in `notes/study-log.md`.
 - [x] Compare base Qwen2.5-0.5B-Instruct vs the 100-step GRPO checkpoint with
   `slurm/eval_gsm8k_compare.sbatch`.
-- [ ] Inspect the worsened paired-comparison example from the train-10 eval.
+- [x] Inspect the worsened paired-comparison example from the train-10 eval.
 - [x] Rerun a 5-step GRPO check with the prompt-leak reward penalty and confirm
-  the new reward values appear. Do not expect leakage rate to move meaningfully in only 5 steps.
+  the new reward values appear.
 - [x] Run a longer follow-up to `checkpoint-300` with the leak penalty.
-- [ ] Use the notebook to compare `prompt_leak_rate` before vs after the penalty.
-- [ ] If rewards are nonzero sometimes, run the next smoke job with more examples, not a bigger model.
-- [ ] If rewards are still effectively zero, improve prompt/reward behavior before more training.
+- [x] Use the notebook to compare `prompt_leak_rate` before vs after the penalty.
+- [x] Evaluate the 300-step leak-penalty checkpoint vs the original base model.
+- [x] Decide not to scale this checkpoint because eval quality worsened.
 
-## Decision Rule
+## Final Results
 
-The next training run should be one of:
+100-step smoke checkpoint:
 
-- reward signal looks usable but eval worsens: inspect paired outputs, then run `MAX_STEPS=300`, `DATASET_LIMIT=50`,
-  same Qwen2.5-0.5B-Instruct model with the leak penalty.
-- reward signal is broken: patch prompt/reward/parser and rerun a 5-step check.
+- Job `50954114` completed and saved `checkpoint-100`.
+- Completion logs had a live reward signal: mean reward about `0.235`, max reward `1.0`.
+- Base-vs-trained train-10 eval: base `0.60`, trained `0.50`, delta `-0.10`.
 
-Do not move to Qwen3-1.7B, vLLM, or AWQ until this is resolved.
+300-step leak-penalty checkpoint:
+
+- Initial job `51062978` timed out near step 294, then resume job `51089453` completed to
+  `checkpoint-300`.
+- Training-completion leakage improved in the notebook comparison, so the penalty affected the
+  logged rollout distribution.
+- Base-vs-trained train-10 eval job `51091160` completed in `00:03:56`, exit code `0:0`.
+- Eval accuracy got worse: base `0.60`, trained `0.20`, delta `-0.40`.
+- Reference PPL got worse: base `1.878`, trained `1.934`, ratio `1.029`.
+- Eval prompt leakage did not improve: base `0.50`, trained `0.50`.
+- Paired result: `0` improved, `4` worsened, `6` unchanged.
+
+## Conclusion
+
+Day 2 is complete because the pipeline and evaluation harness answered the question clearly.
+The answer is negative: the 300-step leak-penalty checkpoint should not be treated as an improved
+model and should not be scaled.
+
+Next day: diagnose the four worsened examples, tighten generation/stop behavior, and run only a
+small format-fix smoke before any longer training.

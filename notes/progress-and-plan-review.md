@@ -6,7 +6,7 @@ This is an audit note, not the chronological study log. It summarizes what the r
 
 The project is still in the Qwen2.5-0.5B GRPO smoke-test phase. The training pipeline now runs on Great Lakes, saves checkpoints, resumes from checkpoints, logs completions, and supports a base-vs-trained GSM8K evaluation script. That is real progress.
 
-The model-quality result is not yet positive. The 100-step checkpoint was slightly worse than the base model on the train-10 sanity eval, and the 300-step leak-penalty checkpoint exists but needs its base-vs-trained eval result recorded before it can be called better or worse.
+The model-quality result is negative so far. The 100-step checkpoint was slightly worse than base on train-10, and the 300-step leak-penalty checkpoint was clearly worse: accuracy `0.60 -> 0.20`, reference PPL `1.878 -> 1.934`, and `0` improved / `4` worsened / `6` unchanged.
 
 ## Milestone Status
 
@@ -27,7 +27,7 @@ The GRPO toolchain works end to end for the small model. CUDA is visible inside 
 
 The original 100-step checkpoint is a smoke artifact, not an improved model. The train-10 evaluation showed base accuracy `0.60`, trained accuracy `0.50`, delta `-0.10`, with `0` improved, `1` worsened, and `9` unchanged. That is not a reason to panic, but it is a reason not to scale model size yet.
 
-The prompt-leak penalty was a reasonable next experiment. The 5-step check verified that the modified reward path executes. The 300-step / 50-example run reached `checkpoint-300` after a timeout and resume, which is good operationally. The next question is whether the leak reduction also preserves or improves accuracy and reference PPL.
+The prompt-leak penalty was a reasonable next experiment. The 5-step check verified that the modified reward path executes, and the 300-step / 50-example run reached `checkpoint-300` after a timeout and resume. But eval quality got worse and eval prompt leakage stayed flat, so this checkpoint should be rejected as an improvement candidate.
 
 ## Gaps And Risks
 
@@ -45,28 +45,39 @@ The main strategic risk is over-investing in the GRPO smoke loop. The project ne
 
 ## Recommended Next Steps
 
-1. Finish and record the 300-step leak-penalty base-vs-trained eval.
+1. Inspect the four worsened examples from the 300-step leak-penalty eval.
 
-   Rationale: this tells whether the cleaner checkpoint is also better, flat, or worse than base on the same train-10 sanity set.
+   Rationale: accuracy and PPL both worsened, so the next move is diagnosis, not a longer run. Identify whether failures are arithmetic errors, format drift, excessive continuation, or parser mismatch.
 
    Command:
 
    ```bash
-   sbatch --account=cavestru0 --time=00:45:00 \
-     --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_leak300 \
-     slurm/eval_gsm8k_compare.sbatch
+      python - <<'PY'
+   import pandas as pd
+   p="/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_leak300/paired_comparison.csv"
+   df=pd.read_csv(p)
+   print(df[df["change"]!="unchanged"].to_string(index=False))
+   PY
    ```
 
-2. If train-10 is not clearly worse, run a small held-out eval.
+2. Run only a small format-fix smoke after tightening prompt and generation length.
 
-   Rationale: a train-10 result is too small and too close to the training distribution. A test-50 run is still cheap but more honest.
+   Rationale: the current checkpoint is bad. The next run should test whether stricter stopping behavior fixes leakage without making math worse. Start with 5 steps, then at most 100 steps if the shape check is healthy.
 
    Example command:
 
    ```bash
-   sbatch --account=cavestru0 --time=01:00:00 \
-     --export=ALL,EVAL_SPLIT=test,EVAL_LIMIT=50,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_test50_leak300 \
-     slurm/eval_gsm8k_compare.sbatch
+      sbatch --job-name=pqs-grpo-format5 \
+     --account=cavestru0 \
+     --partition=spgpu \
+     --gres=gpu:1 \
+     --cpus-per-task=4 \
+     --mem=32G \
+     --time=00:20:00 \
+     --output=logs/%x-%j.out \
+     --error=logs/%x-%j.err \
+     --export=ALL,MAX_STEPS=5,DATASET_LIMIT=10,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_format_fix_5step \
+     slurm/smoke_single_gpu.sbatch
    ```
 
 3. Add explicit peak-memory and KL capture before any larger run.
@@ -87,4 +98,4 @@ The main strategic risk is over-investing in the GRPO smoke loop. The project ne
 
 The project is on track operationally but not yet on track scientifically. The training and evaluation harness is close to usable, but the evidence so far does not show a better trained model, and the quantization study has not begun.
 
-The right posture is: finish the 300-step evaluation, run one small held-out check if it is sane, add missing memory/KL logging, then pivot to the first FP16-vs-W4 comparison. Do not move to a bigger model until the 0.5B evidence is clean enough to justify the cost.
+The right posture is: reject the current 300-step checkpoint as an improvement candidate, run a small format-fix diagnostic, add missing memory/KL logging, and only then decide whether the 0.5B GRPO artifact is good enough to carry into the first FP16-vs-W4 comparison. Do not move to a bigger model until the 0.5B evidence is clean enough to justify the cost.

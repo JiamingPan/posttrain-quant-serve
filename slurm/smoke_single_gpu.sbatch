@@ -21,4 +21,5 @@ python scripts/cluster_check.py
 MAX_STEPS="${MAX_STEPS:-5}" \
 DATASET_LIMIT="${DATASET_LIMIT:-10}" \
 OUTPUT_DIR="${OUTPUT_DIR:-$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo}" \
+MAX_COMPLETION_LENGTH="${MAX_COMPLETION_LENGTH:-128}" \
 bash scripts/run_grpo_smoke.sh

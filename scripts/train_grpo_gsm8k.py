@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import fields
+from typing import Any
 
 from datasets import load_dataset
 from gsm8k_reward import gsm8k_exact_match_reward
@@ -12,8 +13,9 @@ from trl import GRPOConfig, GRPOTrainer
 
 def format_prompt(question: str) -> str:
     return (
-        "Solve the math problem. Show the reasoning briefly, then put the final numeric answer "
-        "on its own line in the form #### <answer>.\n\n"
+        "Solve the math problem. Show the reasoning briefly. End with exactly one final line "
+        "in the form #### <answer>, then stop. Do not write another problem or dialogue "
+        "after the answer.\n\n"
         f"Problem: {question}\n\nSolution:"
     )
 
@@ -41,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning_rate", type=float, default=1e-6)
     parser.add_argument("--beta", type=float, default=0.02)
     parser.add_argument("--max_prompt_length", type=int, default=512)
-    parser.add_argument("--max_completion_length", type=int, default=256)
+    parser.add_argument("--max_completion_length", type=int, default=128)
     parser.add_argument("--logging_steps", type=int, default=1)
     parser.add_argument("--save_steps", type=int, default=5)
     parser.add_argument("--resume_from_checkpoint", default=None)
