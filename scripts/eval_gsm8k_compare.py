@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
 from pathlib import Path
 
@@ -34,7 +35,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="test", choices=["train", "test"])
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--max_prompt_length", type=int, default=1024)
+    parser.add_argument("--max_reference_tokens", type=int, default=512)
     parser.add_argument("--max_new_tokens", type=int, default=192)
+    parser.add_argument("--skip_reference_ppl", action="store_true")
     parser.add_argument("--trust_remote_code", action="store_true")
     return parser.parse_args()
 
@@ -105,6 +108,44 @@ def generate_one(model, tokenizer, device, prompt: str, max_prompt_length: int, 
     return tokenizer.decode(completion_tokens, skip_special_tokens=True)
 
 
+@torch.inference_mode()
+def score_reference_solution(
+    model,
+    tokenizer,
+    device,
+    prompt: str,
+    reference: str,
+    max_prompt_length: int,
+    max_reference_tokens: int,
+) -> tuple[float, int]:
+    """Teacher-force the GSM8K reference solution and return NLL/token."""
+    prompt_inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=max_prompt_length,
+    )
+    full_inputs = tokenizer(
+        prompt + "\n" + reference,
+        return_tensors="pt",
+        truncation=True,
+        max_length=max_prompt_length + max_reference_tokens,
+    )
+
+    input_ids = full_inputs["input_ids"].to(device)
+    attention_mask = full_inputs["attention_mask"].to(device)
+    labels = input_ids.clone()
+    prompt_len = min(prompt_inputs["input_ids"].shape[-1], labels.shape[-1])
+    labels[:, :prompt_len] = -100
+
+    token_count = int((labels != -100).sum().item())
+    if token_count == 0:
+        return float("nan"), 0
+
+    outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+    return float(outputs.loss.item()), token_count
+
+
 def evaluate_model(
     label: str,
     model_name_or_path: str,
@@ -120,9 +161,27 @@ def evaluate_model(
     parsed = 0
     prompt_leaks = 0
     completion_chars: list[int] = []
+    nll_weighted_sum = 0.0
+    nll_token_count = 0
 
     with predictions_path.open("w") as f:
         for row in rows:
+            reference_nll = None
+            reference_tokens = 0
+            if not args.skip_reference_ppl:
+                reference_nll, reference_tokens = score_reference_solution(
+                    model,
+                    tokenizer,
+                    device,
+                    row["prompt"],
+                    row["reference"],
+                    args.max_prompt_length,
+                    args.max_reference_tokens,
+                )
+                if math.isfinite(reference_nll) and reference_tokens > 0:
+                    nll_weighted_sum += reference_nll * reference_tokens
+                    nll_token_count += reference_tokens
+
             completion = generate_one(
                 model,
                 tokenizer,
@@ -148,6 +207,8 @@ def evaluate_model(
                 "exact_match": is_correct,
                 "prompt_leak": leak,
                 "completion_chars": len(completion),
+                "reference_nll_per_token": reference_nll,
+                "reference_tokens": reference_tokens,
             }
             f.write(json.dumps(record) + "\n")
 
@@ -158,6 +219,9 @@ def evaluate_model(
             )
 
     n = len(rows)
+    reference_nll_per_token = nll_weighted_sum / nll_token_count if nll_token_count else None
+    reference_ppl = math.exp(reference_nll_per_token) if reference_nll_per_token is not None else None
+
     summary = {
         "label": label,
         "model": model_name_or_path,
@@ -167,6 +231,9 @@ def evaluate_model(
         "parse_rate": parsed / n if n else 0.0,
         "prompt_leak_rate": prompt_leaks / n if n else 0.0,
         "completion_chars_mean": sum(completion_chars) / n if n else 0.0,
+        "reference_nll_per_token": reference_nll_per_token,
+        "reference_ppl": reference_ppl,
+        "reference_ppl_token_count": nll_token_count,
         "predictions_path": str(predictions_path),
     }
 
@@ -242,6 +309,10 @@ def main() -> None:
         evaluate_model("trained", args.trained_model, rows, args, output_dir),
     ]
     comparison = write_paired_comparison(output_dir)
+    base_nll = summaries[0]["reference_nll_per_token"]
+    trained_nll = summaries[1]["reference_nll_per_token"]
+    base_ppl = summaries[0]["reference_ppl"]
+    trained_ppl = summaries[1]["reference_ppl"]
 
     summary = {
         "split": args.split,
@@ -249,6 +320,11 @@ def main() -> None:
         "base": summaries[0],
         "trained": summaries[1],
         "delta_accuracy": summaries[1]["accuracy"] - summaries[0]["accuracy"],
+        "delta_reference_nll_per_token": (
+            trained_nll - base_nll if trained_nll is not None and base_nll is not None else None
+        ),
+        "delta_reference_ppl": trained_ppl - base_ppl if trained_ppl is not None and base_ppl is not None else None,
+        "reference_ppl_ratio": trained_ppl / base_ppl if trained_ppl is not None and base_ppl else None,
         **comparison,
     }
     summary_path = output_dir / "summary.json"

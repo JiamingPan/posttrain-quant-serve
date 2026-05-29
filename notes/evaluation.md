@@ -42,7 +42,14 @@ Run both on the same GSM8K questions with the same prompt and deterministic deco
 - answer parse rate
 - prompt leakage rate
 - mean completion length
+- reference-solution NLL / perplexity
 - paired changes: improved / worsened / unchanged
+
+Accuracy and PPL answer different questions:
+
+- Accuracy asks whether the generated final answer is correct.
+- PPL asks whether the model assigns high likelihood to the reference GSM8K solution under teacher
+  forcing. Lower PPL is better, but lower PPL does not guarantee higher generated-answer accuracy.
 
 First run the training-set sanity check:
 
@@ -86,3 +93,19 @@ Inspect:
 ```bash
 cat /scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_100step/paired_comparison.csv
 ```
+
+## Leak-Penalty 300-Step Eval
+
+After `checkpoint-300` exists, compare it against the base model:
+
+```bash
+sbatch --account=cavestru0 --time=00:45:00 \
+  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_leak300 \
+  slurm/eval_gsm8k_compare.sbatch
+```
+
+This writes:
+
+- `summary.json`: accuracy, PPL, parse rate, leakage rate.
+- `paired_comparison.csv`: per-question base vs trained changes.
+- `base_predictions.jsonl` and `trained_predictions.jsonl`: full generated completions.

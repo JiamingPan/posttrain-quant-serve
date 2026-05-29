@@ -30,7 +30,13 @@ TRAINED_MODEL="${TRAINED_MODEL:-$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo_100step}
 EVAL_SPLIT="${EVAL_SPLIT:-test}"
 EVAL_LIMIT="${EVAL_LIMIT:-50}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-192}"
+MAX_REFERENCE_TOKENS="${MAX_REFERENCE_TOKENS:-512}"
 EVAL_OUTPUT_DIR="${EVAL_OUTPUT_DIR:-$PQS_ROOT/evals/gsm8k_compare_${EVAL_SPLIT}_${EVAL_LIMIT}}"
+
+ppl_args=()
+if [[ "${SKIP_REFERENCE_PPL:-0}" == "1" ]]; then
+  ppl_args+=(--skip_reference_ppl)
+fi
 
 python scripts/eval_gsm8k_compare.py \
   --base_model "$BASE_MODEL" \
@@ -38,4 +44,6 @@ python scripts/eval_gsm8k_compare.py \
   --output_dir "$EVAL_OUTPUT_DIR" \
   --split "$EVAL_SPLIT" \
   --limit "$EVAL_LIMIT" \
-  --max_new_tokens "$MAX_NEW_TOKENS"
+  --max_new_tokens "$MAX_NEW_TOKENS" \
+  --max_reference_tokens "$MAX_REFERENCE_TOKENS" \
+  "${ppl_args[@]}"
