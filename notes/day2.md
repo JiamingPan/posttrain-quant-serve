@@ -18,7 +18,8 @@ running anything larger.
 - [ ] Inspect the worsened paired-comparison example from the train-10 eval.
 - [x] Rerun a 5-step GRPO check with the prompt-leak reward penalty and confirm
   the new reward values appear. Do not expect leakage rate to move meaningfully in only 5 steps.
-- [ ] Use a longer follow-up run to compare `prompt_leak_rate` before vs after the penalty.
+- [x] Run a longer follow-up to `checkpoint-300` with the leak penalty.
+- [ ] Use the notebook to compare `prompt_leak_rate` before vs after the penalty.
 - [ ] If rewards are nonzero sometimes, run the next smoke job with more examples, not a bigger model.
 - [ ] If rewards are still effectively zero, improve prompt/reward behavior before more training.
 

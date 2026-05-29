@@ -210,3 +210,49 @@ Interpretation:
   model.
 - Do not scale model size from this checkpoint. First inspect the worsened example and run a longer
   leak-penalty experiment or improve reward/prompt settings.
+
+Longer leak-penalty follow-up:
+
+```bash
+sbatch --job-name=pqs-grpo-leak300 \
+  --account=cavestru0 \
+  --partition=spgpu \
+  --gres=gpu:1 \
+  --cpus-per-task=4 \
+  --mem=32G \
+  --time=01:00:00 \
+  --output=logs/%x-%j.out \
+  --error=logs/%x-%j.err \
+  --export=ALL,MAX_STEPS=300,DATASET_LIMIT=50,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k \
+  slurm/smoke_single_gpu.sbatch
+```
+
+- Job `51062978`, `pqs-grpo-leak300`, timed out at `01:00:15` near `294/300`.
+- It saved `checkpoint-285` and `checkpoint-290`.
+- Resume command:
+
+```bash
+sbatch --job-name=pqs-grpo-leak300-resume \
+  --account=cavestru0 \
+  --partition=spgpu \
+  --gres=gpu:1 \
+  --cpus-per-task=4 \
+  --mem=32G \
+  --time=00:30:00 \
+  --output=logs/%x-%j.out \
+  --error=logs/%x-%j.err \
+  --export=ALL,MAX_STEPS=300,DATASET_LIMIT=50,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,RESUME_FROM_CHECKPOINT=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k/checkpoint-290 \
+  slurm/smoke_single_gpu.sbatch
+```
+
+- Job `51089453`, `pqs-grpo-leak300-resume`, completed in `00:06:53`, exit code `0:0`.
+- Final checkpoint exists:
+  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k/checkpoint-300`.
+- Step 300 log showed the leak penalty is active: a leaky wrong completion received reward `-0.25`.
+- The notebook now defaults to this 300-step run and compares it against the original 100-step run.
+
+Next:
+
+1. Run `notebooks/grpo_smoke_analysis.ipynb` on Great Lakes.
+2. Compare `prompt_leak_rate` for `baseline_100step` vs `leak_penalty_300step`.
+3. If leakage improves, run base-vs-trained eval for `checkpoint-300`.
