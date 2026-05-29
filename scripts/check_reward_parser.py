@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gsm8k_reward import extract_model_answer, gsm8k_exact_match_reward, has_prompt_leak_after_answer
+from gsm8k_reward import extract_model_answer, group_reward_variance_stats, gsm8k_exact_match_reward, has_prompt_leak_after_answer
 
 
 def main() -> None:
@@ -46,6 +46,12 @@ def main() -> None:
     assert has_prompt_leak_after_answer("Final answer: 312\n\nHuman: next task")
     assert has_prompt_leak_after_answer("Final answer: 312\n\nYou are given a list of integers.")
     assert has_prompt_leak_after_answer("#### 28.Select the correct answer: ...")
+    stats = group_reward_variance_stats(
+        completions=["Final answer: 1", "Final answer: 2", "Final answer: 3", "Final answer: 4"],
+        answer=["#### 9", "#### 9", "#### 9", "#### 9"],
+        num_generations=4,
+    )
+    assert stats[0]["zero_reward_variance"] is True
     assert not has_prompt_leak_after_answer("Human: context\n\nFinal answer: 312")
     print("reward parser checks passed")
 

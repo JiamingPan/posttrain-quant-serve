@@ -30,6 +30,16 @@ Start with `notes/project-overview.md`. Then use this reading order.
    - URL: https://huggingface.co/docs/trl/grpo_trainer
    - Extract: logged metrics, completion logging, reward function contract, generation settings.
 
+
+## Day 3
+
+1. `notes/grpo-literature.md`
+   - Extract: advantage/reward-std collapse, Dr. GRPO length/std-normalization bias, and DAPO dynamic sampling.
+2. TRL `v1.5.0` GRPOConfig source
+   - Extract: which knobs exist locally: `scale_rewards`, `loss_type`, `temperature`, `num_generations`, `beta`, and logging fields.
+3. `notebooks/grpo_smoke_analysis.ipynb`
+   - Extract: reward_std, zero-reward-variance group fraction, advantage behavior, KL, and held-out eval deltas.
+
 ## Later
 
 1. vLLM/PagedAttention

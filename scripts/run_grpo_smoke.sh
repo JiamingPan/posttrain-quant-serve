@@ -7,6 +7,8 @@ set -euo pipefail
 : "${MAX_STEPS:=5}"
 : "${DATASET_LIMIT:=10}"
 : "${NUM_GENERATIONS:=4}"
+: "${LEARNING_RATE:=1e-6}"
+: "${BETA:=0.02}"
 : "${BATCH_SIZE:=1}"
 : "${GRAD_ACCUM:=4}"
 : "${MAX_COMPLETION_LENGTH:=128}"
@@ -23,8 +25,36 @@ cmd=(
   --num_generations "$NUM_GENERATIONS"
   --per_device_train_batch_size "$BATCH_SIZE"
   --gradient_accumulation_steps "$GRAD_ACCUM"
+  --learning_rate "$LEARNING_RATE"
+  --beta "$BETA"
   --max_completion_length "$MAX_COMPLETION_LENGTH"
 )
+
+
+optional_opts=(
+  "TEMPERATURE:--temperature"
+  "TOP_P:--top_p"
+  "TOP_K:--top_k"
+  "MIN_P:--min_p"
+  "REPETITION_PENALTY:--repetition_penalty"
+  "SCALE_REWARDS:--scale_rewards"
+  "LOSS_TYPE:--loss_type"
+  "EPSILON_HIGH:--epsilon_high"
+)
+
+for opt in "${optional_opts[@]}"; do
+  var="${opt%%:*}"
+  flag="${opt#*:}"
+  value="${!var:-}"
+  if [[ -n "$value" ]]; then
+    cmd+=("$flag" "$value")
+  fi
+done
+
+if [[ "${MASK_TRUNCATED_COMPLETIONS:-0}" == "1" ]]; then
+  cmd+=(--mask_truncated_completions)
+fi
+
 
 if [[ -n "$RESUME_FROM_CHECKPOINT" ]]; then
   cmd+=(--resume_from_checkpoint "$RESUME_FROM_CHECKPOINT")

@@ -20,8 +20,10 @@ Starting evidence:
 - [x] Tighten the train/eval prompt so the model is told to stop after the `#### <answer>` line.
 - [x] Reduce default training completion length from `256` to `128`.
 - [x] Reduce default eval generation length from `192` to `96`.
-- [ ] Run a 5-step format-fix smoke job.
-- [ ] Evaluate the 5-step or 100-step format-fix checkpoint before any 300-step rerun.
+- [ ] Run or inspect the submitted 100-step format-fix smoke job `51123578`.
+- [ ] Evaluate the format-fix checkpoint before any 300-step rerun.
+- [ ] Run held-out test-50 evals for both old checkpoints to check whether the regression survives beyond train-10 noise.
+- [ ] Use the notebook dynamics plots to check reward-std / zero-advantage / KL collapse.
 - [ ] Decide whether another GRPO run is justified or whether reward/generation needs another patch.
 
 ## Suggested Commands

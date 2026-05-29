@@ -100,6 +100,46 @@ So the smoke config satisfies the rule.
 | `GRPOConfig` unexpected keyword | TRL changed config field names across versions | `train_grpo_gsm8k.py` filters unsupported config keys and prints what it dropped |
 | Correct-looking answer gets reward 0 | Answer parser is missing the model's format | Add a parser case to `scripts/check_reward_parser.py`, then patch `scripts/gsm8k_reward.py` |
 
+
+## Day 3 GRPO Stability Notes
+
+The Day 2 regression is more consistent with GRPO signal collapse than simple undertraining:
+
+```text
+100-step eval: base 0.60 -> trained 0.50
+300-step leak-penalty eval: base 0.60 -> trained 0.20
+300-step reference PPL: 1.878 -> 1.934
+final train_loss: about 7.7e-6
+```
+
+The mechanism to check first is within-group reward collapse. If all completions for a prompt get
+identical reward, GRPO has no useful relative advantage for that prompt. With `beta > 0`, the KL term
+can still be active even when the policy-gradient term is effectively dead. The notebook now plots
+reward standard deviation, zero-reward-variance group fraction, advantage magnitude, and KL when the
+trainer saved those series.
+
+## TRL 1.5.0 Knobs To Know
+
+The training script keeps the old defaults unless an override is passed. It exposes these optional
+TRL `GRPOConfig` fields when the installed TRL version supports them:
+
+| Flag | Purpose | Default in this repo |
+| --- | --- | --- |
+| `--num_generations` | group size; larger groups are more likely to contain reward contrast | `4` |
+| `--temperature` | sampling exploration during rollout generation | TRL default unless set |
+| `--top_p`, `--top_k`, `--min_p`, `--repetition_penalty` | generation exploration/shape controls | TRL default unless set |
+| `--scale_rewards` | TRL reward scaling mode; use `group`, `batch`, or `none` | TRL default unless set |
+| `--loss_type` | GRPO-family loss variant, e.g. `grpo`, `bnpo`, `dr_grpo`, or `dapo` when supported | TRL default unless set |
+| `--epsilon_high` | DAPO-style higher clip range when supported | TRL default unless set |
+| `--mask_truncated_completions` | ignore completions truncated by max length when supported | off unless set |
+| `--beta` | KL coefficient; lower values weaken the pull toward the reference model | `0.02` |
+
+Important limitation: this repo does not implement true DAPO dynamic sampling. Dropping or resampling
+all-equal-reward prompt groups requires changing trainer-side sampling/loss construction. A reward
+function can diagnose all-equal groups, but it cannot honestly remove their KL contribution after the
+trainer has already sampled them. Use the notebook diagnostics before deciding whether to modify the
+trainer itself.
+
 ## Interview Explanation
 
 "I used GRPO because GSM8K gives verifiable rewards, so I could run RL post-training without training a reward model. For each math prompt, the trainer samples several completions, scores final-answer correctness, normalizes rewards within the group to estimate advantages, and applies a KL penalty against the reference model. The project then tests whether that RL update changes the model's quantization behavior."

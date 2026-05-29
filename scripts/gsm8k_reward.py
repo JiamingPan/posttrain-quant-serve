@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 import re
+from statistics import pstdev
 from typing import Any
 
 
@@ -126,3 +127,34 @@ def gsm8k_exact_match_reward(completions: list[Any], answer: list[str], **_: Any
             reward -= PROMPT_LEAK_AFTER_ANSWER_PENALTY
         rewards.append(reward)
     return rewards
+
+
+def group_reward_variance_stats(
+    completions: list[Any],
+    answer: list[str],
+    num_generations: int,
+) -> list[dict[str, float | int | bool]]:
+    """Summarize reward variance in contiguous completion groups.
+
+    This is a diagnostic helper, not dynamic sampling. TRL's trainer owns sampling and loss
+    construction, so a reward function cannot honestly drop/resample all-equal groups.
+    """
+    if num_generations <= 0:
+        raise ValueError("num_generations must be positive")
+    rewards = gsm8k_exact_match_reward(completions, answer)
+    rows: list[dict[str, float | int | bool]] = []
+    for group_index, start in enumerate(range(0, len(rewards), num_generations)):
+        group = rewards[start : start + num_generations]
+        if len(group) < num_generations:
+            continue
+        rows.append(
+            {
+                "group_index": group_index,
+                "num_generations": len(group),
+                "reward_mean": sum(group) / len(group),
+                "reward_std": pstdev(group) if len(group) > 1 else 0.0,
+                "unique_rewards": len(set(group)),
+                "zero_reward_variance": len(set(group)) == 1,
+            }
+        )
+    return rows

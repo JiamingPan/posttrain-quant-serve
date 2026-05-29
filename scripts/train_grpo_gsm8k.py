@@ -48,7 +48,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save_steps", type=int, default=5)
     parser.add_argument("--resume_from_checkpoint", default=None)
     parser.add_argument("--report_to", default="none")
+
+    # Optional TRL GRPOConfig knobs. Defaults are None unless the earlier smoke config already used
+    # the field, so current behavior is preserved unless a flag/environment override is passed.
+    parser.add_argument("--temperature", type=float, default=None)
+    parser.add_argument("--top_p", type=float, default=None)
+    parser.add_argument("--top_k", type=int, default=None)
+    parser.add_argument("--min_p", type=float, default=None)
+    parser.add_argument("--repetition_penalty", type=float, default=None)
+    parser.add_argument("--scale_rewards", choices=("group", "batch", "none"), default=None)
+    parser.add_argument("--loss_type", default=None)
+    parser.add_argument("--epsilon_high", type=float, default=None)
+    parser.add_argument("--mask_truncated_completions", action="store_true")
     return parser.parse_args()
+
+
+def normalize_scale_rewards(value: str | None) -> str | bool | None:
+    if value == "none":
+        return False
+    return value
+
+
+def add_optional_config(kwargs: dict[str, Any], key: str, value: Any) -> None:
+    if value is not None:
+        kwargs[key] = value
 
 
 def build_grpo_config(**kwargs: Any) -> GRPOConfig:
@@ -58,6 +81,23 @@ def build_grpo_config(**kwargs: Any) -> GRPOConfig:
     dropped = sorted(set(kwargs) - valid_fields)
     if dropped:
         print(f"Dropping unsupported GRPOConfig fields for this TRL version: {dropped}")
+    interesting = [
+        "beta",
+        "num_generations",
+        "temperature",
+        "scale_rewards",
+        "loss_type",
+        "mask_truncated_completions",
+        "epsilon_high",
+    ]
+    print("Accepted GRPOConfig diagnostic/optimization fields:")
+    for key in interesting:
+        if key in filtered:
+            print(f"  {key}={filtered[key]!r}")
+        elif key in valid_fields:
+            print(f"  {key}=<TRL default>")
+        else:
+            print(f"  {key}=<unsupported by installed TRL>")
     return GRPOConfig(**filtered)
 
 
@@ -65,7 +105,7 @@ def main() -> None:
     args = parse_args()
     train_dataset = build_dataset(args.split, args.dataset_limit)
 
-    training_args = build_grpo_config(
+    config_kwargs: dict[str, Any] = dict(
         output_dir=args.output_dir,
         max_steps=args.max_steps,
         num_generations=args.num_generations,
@@ -75,6 +115,7 @@ def main() -> None:
         beta=args.beta,
         max_prompt_length=args.max_prompt_length,
         max_completion_length=args.max_completion_length,
+        logging_strategy="steps",
         logging_steps=args.logging_steps,
         save_steps=args.save_steps,
         save_strategy="steps",
@@ -87,6 +128,18 @@ def main() -> None:
         report_to=args.report_to,
         log_on_each_node=False,
     )
+    add_optional_config(config_kwargs, "temperature", args.temperature)
+    add_optional_config(config_kwargs, "top_p", args.top_p)
+    add_optional_config(config_kwargs, "top_k", args.top_k)
+    add_optional_config(config_kwargs, "min_p", args.min_p)
+    add_optional_config(config_kwargs, "repetition_penalty", args.repetition_penalty)
+    add_optional_config(config_kwargs, "scale_rewards", normalize_scale_rewards(args.scale_rewards))
+    add_optional_config(config_kwargs, "loss_type", args.loss_type)
+    add_optional_config(config_kwargs, "epsilon_high", args.epsilon_high)
+    if args.mask_truncated_completions:
+        config_kwargs["mask_truncated_completions"] = True
+
+    training_args = build_grpo_config(**config_kwargs)
 
     trainer = GRPOTrainer(
         model=args.model,
