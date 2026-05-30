@@ -16,6 +16,16 @@ This supports the advantage/reward-std-collapse hypothesis indirectly, but it do
 The notebook now has the plots needed to check reward standard deviation, zero-reward-variance prompt
 groups, advantage magnitude, and KL when those artifacts are present.
 
+The first objective-fix smoke has a better train-10 result:
+
+- `g8_dr100` checkpoint: base `0.10` -> trained `0.30`.
+- Paired changes: `2` improved, `0` worsened, `8` unchanged.
+- Prompt leak stayed low but nonzero for trained: base `0.00` -> trained `0.10`.
+- Reference PPL still worsened slightly: base `1.878` -> trained `1.904`.
+
+Interpretation: the objective-fix direction is promising enough to evaluate on held-out data, but it is
+not proven. Do not run 300 steps until test-50 and notebook dynamics support it.
+
 ## TRL 1.5.0 Knobs Exposed
 
 The trainer now exposes these optional knobs while preserving current defaults unless flags are set:

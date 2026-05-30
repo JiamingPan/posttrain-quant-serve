@@ -10,6 +10,16 @@ Starting evidence:
 - Eval prompt leakage stayed flat at `0.50` for both base and trained.
 - Therefore the next step is diagnosis and controlled objective fixes, not scaling.
 
+Updated evidence:
+
+- 100-step format-fix checkpoint improved train-10 exact match under the stricter eval prompt:
+  base `0.10` -> trained `0.20`, but reference PPL still got slightly worse.
+- 100-step objective-fix checkpoint `g8_dr100` improved train-10 exact match:
+  base `0.10` -> trained `0.30`, with `2` improved, `0` worsened, and `8` unchanged examples.
+  Reference PPL still got slightly worse: `1.878` -> `1.904`.
+- This is a useful positive smoke signal, but train-10 is too small to trust. Run held-out evals
+  before any 300-step rerun.
+
 ## Tasks
 
 - [ ] Pull latest repo on Great Lakes.
@@ -25,8 +35,10 @@ Starting evidence:
 - [x] Confirm TRL 1.5.0 accepts `loss_type=dr_grpo`, `scale_rewards=none`, and the
   generation-sampling knobs exposed by `scripts/train_grpo_gsm8k.py`.
 - [x] Submit the objective-pathology smoke run `pqs-grpo-g8-dr100`.
-- [ ] Evaluate the objective-pathology checkpoint with `pqs-eval-g8-dr100`.
-- [ ] Run held-out test-50 evals for both old checkpoints to check whether the regression survives beyond train-10 noise.
+- [x] Evaluate the objective-pathology checkpoint with `pqs-eval-g8-dr100`.
+- [ ] Run held-out test-50 evals for the promising Day 3 checkpoints, especially `g8_dr100`.
+  Old checkpoint test-50 evals are still useful context, but the next decision depends most on the
+  objective-fix result.
 - [ ] Use the notebook dynamics plots to check reward-std / zero-advantage / KL collapse.
 - [ ] Decide whether a 300-step rerun is justified or whether reward/generation still needs another patch.
 
