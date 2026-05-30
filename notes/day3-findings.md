@@ -26,6 +26,26 @@ The first objective-fix smoke has a better train-10 result:
 Interpretation: the objective-fix direction is promising enough to evaluate on held-out data, but it is
 not proven. Do not run 300 steps until test-50 and notebook dynamics support it.
 
+Held-out `test50_g8_dr100` is positive but still weak in absolute terms:
+
+- Base `0.06` -> trained `0.22`.
+- Paired changes: `9` improved, `1` worsened, `40` unchanged.
+- Prompt leakage stayed at `0.00`.
+
+Interpretation: the objective-fix settings improved this tiny model on a 50-question held-out sample,
+but the trained model is still only at `22%` exact match. The project should treat this as evidence
+that the old objective was harmful and the new direction is worth diagnosing further, not as a strong
+model-quality result.
+
+Also note that the notebook's detailed dynamics section currently defaults to `RUN_DIR`, which is the
+old 300-step leak-penalty run. Its reward/std/KL plots do not describe `g8_dr100` unless `RUN_DIR` is
+changed to `OBJECTIVE_FIX_RUN_DIR` and `NUM_GENERATIONS` is changed to `8`.
+
+The KL/loss spike visible in the old 300-step run should not be ignored. The notebook now prints
+trainer-history rows above the 99th percentile and shows both raw and robust y-axis plots, so a single
+logged spike does not flatten the rest of the curve. Treat that spike as a diagnostic clue, not as a
+plotting artifact to silently delete.
+
 ## TRL 1.5.0 Knobs Exposed
 
 The trainer now exposes these optional knobs while preserving current defaults unless flags are set:

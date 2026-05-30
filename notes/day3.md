@@ -17,8 +17,12 @@ Updated evidence:
 - 100-step objective-fix checkpoint `g8_dr100` improved train-10 exact match:
   base `0.10` -> trained `0.30`, with `2` improved, `0` worsened, and `8` unchanged examples.
   Reference PPL still got slightly worse: `1.878` -> `1.904`.
-- This is a useful positive smoke signal, but train-10 is too small to trust. Run held-out evals
-  before any 300-step rerun.
+- Held-out `test50_g8_dr100` improved exact match from base `0.06` to trained `0.22`, with `9`
+  improved, `1` worsened, and `40` unchanged examples. This is a useful positive smoke signal, but
+  the absolute accuracy is still poor, so do not call this a solved model-quality result.
+- The dynamics plots in the notebook default to `RUN_DIR`, currently the old 300-step leak-penalty
+  run. Those plots do **not** describe `g8_dr100` unless `RUN_DIR` is changed to
+  `OBJECTIVE_FIX_RUN_DIR`.
 
 ## Definitions
 
@@ -44,7 +48,7 @@ Updated evidence:
 | `train10_leak300` | Old 300-step leak-penalty checkpoint | `MAX_STEPS=300`, `DATASET_LIMIT=50`, `NUM_GENERATIONS=4`, old/default loss, `scale_rewards=group/default`, `BETA=0.02` | train10: base `0.60` -> trained `0.20` | This is **not** the objective-fix run. It shows that more steps with the old setup made things worse. |
 | `train10_format100` | Prompt/output-format cleanup checkpoint | `MAX_STEPS=100`, `DATASET_LIMIT=10`, `NUM_GENERATIONS=4`, old/default loss, `scale_rewards=group/default`, `BETA=0.02`, stricter prompt and shorter generation | train10: base `0.10` -> trained `0.20` | Tests whether cleaner prompt/generation helps. It is not a GRPO objective fix. |
 | `train10_g8_dr100` | Objective-pathology fix checkpoint | `MAX_STEPS=100`, `DATASET_LIMIT=10`, `NUM_GENERATIONS=8`, `LOSS_TYPE=dr_grpo`, `SCALE_REWARDS=none`, `BETA=0.0` | train10: base `0.10` -> trained `0.30` | Best tiny eval so far. This is the checkpoint to test on held-out `test50` next. |
-| `test50_g8_dr100` | Pending held-out eval of the objective-fix checkpoint | No training; eval only | pending | Uses 50 GSM8K test questions to check whether the train10 improvement is real. |
+| `test50_g8_dr100` | Held-out eval of the objective-fix checkpoint | No training; eval only | test50: base `0.06` -> trained `0.22`; `9` improved, `1` worsened | Positive but still low absolute accuracy. This supports more diagnosis, not scaling or quantization. |
 
 Important: `train10_g8_dr100` used 100 GRPO training steps. It has **not** been run for 300 GRPO
 steps. The old 300-step row is `train10_leak300`, which used the old/default objective.
@@ -65,7 +69,8 @@ steps. The old 300-step row is `train10_leak300`, which used the old/default obj
   generation-sampling knobs exposed by `scripts/train_grpo_gsm8k.py`.
 - [x] Submit the objective-pathology smoke run `pqs-grpo-g8-dr100`.
 - [x] Evaluate the objective-pathology checkpoint with `pqs-eval-g8-dr100`.
-- [ ] Run held-out test-50 evals for the promising Day 3 checkpoints, especially `g8_dr100`.
+- [x] Run held-out test-50 eval for the promising Day 3 checkpoint `g8_dr100`.
+- [ ] Optionally run held-out test-50 evals for `format100` and old checkpoints for context.
   Old checkpoint test-50 evals are still useful context, but the next decision depends most on the
   objective-fix result.
 - [ ] Use the notebook dynamics plots to check reward-std / zero-advantage / KL collapse.
