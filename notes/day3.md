@@ -20,6 +20,35 @@ Updated evidence:
 - This is a useful positive smoke signal, but train-10 is too small to trust. Run held-out evals
   before any 300-step rerun.
 
+## Definitions
+
+- **GRPO training step** means one optimizer update to the model during `scripts/train_grpo_gsm8k.py`.
+  It is controlled by `MAX_STEPS`. Example: `MAX_STEPS=100` means 100 GRPO optimizer updates.
+- **Training examples** means GSM8K problems used to update the model. It is controlled by
+  `DATASET_LIMIT` in the training job. Example: `DATASET_LIMIT=10` means the smoke run trains on
+  10 GSM8K train-split problems.
+- **Eval examples** means GSM8K problems used only for measurement. Eval does not update model
+  weights. It is controlled by `EVAL_SPLIT` and `EVAL_LIMIT`.
+- **`train10` eval** means `EVAL_SPLIT=train,EVAL_LIMIT=10`: evaluate on 10 examples from the
+  GSM8K train split. This is fast, but it is not held out and is too small to trust by itself.
+- **`test50` eval** means `EVAL_SPLIT=test,EVAL_LIMIT=50`: evaluate on 50 held-out GSM8K test
+  examples. This is the next check before deciding whether to spend compute on a 300-step rerun.
+- **Base model** means the original `Qwen/Qwen2.5-0.5B-Instruct`.
+- **Trained model** means the checkpoint produced by one of these GRPO smoke runs.
+
+## Run Ledger
+
+| Name in notebook | What ran | Training config | Eval shown so far | Meaning |
+| --- | --- | --- | --- | --- |
+| `train10_100step` | Original Day 1/2 smoke checkpoint | `MAX_STEPS=100`, `DATASET_LIMIT=10`, `NUM_GENERATIONS=4`, old/default loss, `scale_rewards=group/default`, `BETA=0.02` | train10: base `0.60` -> trained `0.50` | Original setup got slightly worse. |
+| `train10_leak300` | Old 300-step leak-penalty checkpoint | `MAX_STEPS=300`, `DATASET_LIMIT=50`, `NUM_GENERATIONS=4`, old/default loss, `scale_rewards=group/default`, `BETA=0.02` | train10: base `0.60` -> trained `0.20` | This is **not** the objective-fix run. It shows that more steps with the old setup made things worse. |
+| `train10_format100` | Prompt/output-format cleanup checkpoint | `MAX_STEPS=100`, `DATASET_LIMIT=10`, `NUM_GENERATIONS=4`, old/default loss, `scale_rewards=group/default`, `BETA=0.02`, stricter prompt and shorter generation | train10: base `0.10` -> trained `0.20` | Tests whether cleaner prompt/generation helps. It is not a GRPO objective fix. |
+| `train10_g8_dr100` | Objective-pathology fix checkpoint | `MAX_STEPS=100`, `DATASET_LIMIT=10`, `NUM_GENERATIONS=8`, `LOSS_TYPE=dr_grpo`, `SCALE_REWARDS=none`, `BETA=0.0` | train10: base `0.10` -> trained `0.30` | Best tiny eval so far. This is the checkpoint to test on held-out `test50` next. |
+| `test50_g8_dr100` | Pending held-out eval of the objective-fix checkpoint | No training; eval only | pending | Uses 50 GSM8K test questions to check whether the train10 improvement is real. |
+
+Important: `train10_g8_dr100` used 100 GRPO training steps. It has **not** been run for 300 GRPO
+steps. The old 300-step row is `train10_leak300`, which used the old/default objective.
+
 ## Tasks
 
 - [ ] Pull latest repo on Great Lakes.
@@ -138,10 +167,18 @@ sbatch --job-name=pqs-eval-g8-dr100 \
   --gres=gpu:1 \
   --cpus-per-task=4 \
   --mem=32G \
-  --time=00:45:00 \
+  --time=00:10:00 \
   --output=logs/%x-%j.out \
   --error=logs/%x-%j.err \
   --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_g8_dr100,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_g8_dr100 \
+  slurm/eval_gsm8k_compare.sbatch
+```
+
+Run the held-out test-50 eval for the objective-fix checkpoint:
+
+```bash
+sbatch --account=cavestru0 --time=00:30:00 \
+  --export=ALL,EVAL_SPLIT=test,EVAL_LIMIT=50,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_g8_dr100,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_test50_g8_dr100 \
   slurm/eval_gsm8k_compare.sbatch
 ```
 
