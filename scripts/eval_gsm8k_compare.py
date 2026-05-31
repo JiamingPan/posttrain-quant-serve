@@ -28,6 +28,12 @@ HONESTY_NOTE = (
 )
 
 
+DEFAULT_BASE_MODELS = {
+    "qwen2_5_0_5b": "Qwen/Qwen2.5-0.5B-Instruct",
+    "qwen2_5_1_5b": "Qwen/Qwen2.5-1.5B-Instruct",
+}
+
+
 def format_prompt(question: str) -> str:
     return (
         "Solve the math problem. Show the reasoning briefly. End with exactly one final line "
@@ -39,21 +45,29 @@ def format_prompt(question: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     pqs_root = os.environ.get("PQS_ROOT", "/scratch/huterer_root/huterer0/jiamingp/pqs")
-    default_trained = f"{pqs_root}/ckpts/qwen2_5_0_5b_grpo_g8_dr100"
-    default_base_awq = f"{pqs_root}/ckpts_awq/qwen2_5_0_5b_base_awq_w4g128"
-    default_trained_awq = f"{pqs_root}/ckpts_awq/qwen2_5_0_5b_g8_dr100_awq_w4g128"
-    default_output = f"{pqs_root}/evals/gsm8k_compare_test50_g8_dr100_bnb_w4"
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base_model", default="Qwen/Qwen2.5-0.5B-Instruct")
+    parser.add_argument(
+        "--model_tag",
+        default=os.environ.get("MODEL_TAG", "qwen2_5_0_5b"),
+        help=(
+            "Short model id used to build default checkpoint/eval paths. "
+            "Known tags also set the default base_model. Default: qwen2_5_0_5b."
+        ),
+    )
+    parser.add_argument(
+        "--base_model",
+        default=None,
+        help="Base HF model or checkpoint. Defaults from --model_tag for known tags.",
+    )
     parser.add_argument(
         "--trained_model",
-        default=default_trained,
+        default=None,
         help="GRPO checkpoint to evaluate; defaults to the Day 3 g8_dr100 checkpoint under PQS_ROOT.",
     )
-    parser.add_argument("--base_awq_model", default=default_base_awq)
-    parser.add_argument("--trained_awq_model", default=default_trained_awq)
-    parser.add_argument("--output_dir", default=default_output)
+    parser.add_argument("--base_awq_model", default=None)
+    parser.add_argument("--trained_awq_model", default=None)
+    parser.add_argument("--output_dir", default=None)
     parser.add_argument("--split", default="test", choices=["train", "test"])
     parser.add_argument("--limit", type=int, default=50, help="Use 50 for smoke; use 100 to reduce W4 delta noise.")
     parser.add_argument("--max_prompt_length", type=int, default=1024)
@@ -68,7 +82,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trust_remote_code", action="store_true")
     args = parser.parse_args()
     args.precisions = parse_precisions(args.precisions, parser)
+    apply_model_tag_defaults(args, parser, pqs_root)
     return args
+
+
+def apply_model_tag_defaults(args: argparse.Namespace, parser: argparse.ArgumentParser, pqs_root: str) -> None:
+    base_model = DEFAULT_BASE_MODELS.get(args.model_tag)
+    if args.base_model is None:
+        if base_model is None:
+            parser.error(
+                f"--base_model is required because --model_tag={args.model_tag!r} is not a known default tag. "
+                f"Known tags: {sorted(DEFAULT_BASE_MODELS)}"
+            )
+        args.base_model = base_model
+
+    if args.trained_model is None:
+        args.trained_model = f"{pqs_root}/ckpts/{args.model_tag}_grpo_g8_dr100"
+    if args.base_awq_model is None:
+        args.base_awq_model = f"{pqs_root}/ckpts_awq/{args.model_tag}_base_awq_w4g128"
+    if args.trained_awq_model is None:
+        args.trained_awq_model = f"{pqs_root}/ckpts_awq/{args.model_tag}_g8_dr100_awq_w4g128"
+    if args.output_dir is None:
+        precision_slug = "_".join(args.precisions)
+        args.output_dir = (
+            f"{pqs_root}/evals/gsm8k_compare_{args.split}{args.limit}_"
+            f"{args.model_tag}_g8_dr100_{precision_slug}"
+        )
 
 
 def parse_precisions(value: str, parser: argparse.ArgumentParser) -> list[str]:
