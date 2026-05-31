@@ -6,6 +6,8 @@
 #     slurm/weight_outliers.sbatch
 
 #SBATCH --job-name=pqs-weight-outliers
+#SBATCH --partition=spgpu
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH --time=00:30:00
