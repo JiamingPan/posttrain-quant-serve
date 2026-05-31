@@ -1,5 +1,6 @@
 # Optional AWQ dependency set.
 #
-# Install this only when running scripts/quantize_awq.py. AutoAWQ may change the
-# installed Transformers version, so it is kept separate from requirements.txt.
+# Install this only when quantizing/evaluating AWQ checkpoints. AutoAWQ may change
+# the installed Transformers version, so it is kept separate from requirements.txt.
 autoawq>=0.2.9
+gptqmodel

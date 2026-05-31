@@ -139,6 +139,11 @@ def validate_runtime_for_precisions(precisions: list[str]) -> None:
             "precision=awq requires AutoAWQ. Install optional AWQ deps with "
             "`python -m pip install -r requirements-awq.txt`."
         )
+    if "awq" in precisions and importlib.util.find_spec("gptqmodel") is None:
+        raise RuntimeError(
+            "precision=awq requires gptqmodel for Transformers to load saved AWQ checkpoints. "
+            "Install optional AWQ deps with `python -m pip install -r requirements-awq.txt`."
+        )
 
 
 def load_eval_rows(split: str, limit: int) -> list[dict[str, str]]:
