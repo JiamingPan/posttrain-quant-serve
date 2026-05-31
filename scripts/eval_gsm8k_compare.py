@@ -206,8 +206,12 @@ def load_model(model_name_or_path: str, precision: str, trust_remote_code: bool)
             raise RuntimeError("precision=awq requires CUDA.")
         if importlib.util.find_spec("awq") is None:
             raise RuntimeError("precision=awq requires AutoAWQ. Install it with `pip install -r requirements-awq.txt`.")
+        # Saved AWQ checkpoints load through Transformers/gptqmodel on this stack.
+        # The Marlin AWQ CUDA kernels require fp16 activations; Qwen configs may
+        # otherwise request bf16 and fail during forward/reference-PPL scoring.
         model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
+            dtype=torch.float16,
             device_map={"": 0},
             trust_remote_code=trust_remote_code,
         )
