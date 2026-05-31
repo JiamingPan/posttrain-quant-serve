@@ -81,6 +81,19 @@ def parse_precisions(value: str, parser: argparse.ArgumentParser) -> list[str]:
     return precisions
 
 
+def validate_runtime_for_precisions(precisions: list[str]) -> None:
+    if "w4" not in precisions:
+        return
+    if not torch.cuda.is_available():
+        raise RuntimeError("precision=w4 requires CUDA because bitsandbytes 4-bit loading needs a GPU.")
+    if importlib.util.find_spec("bitsandbytes") is None:
+        raise RuntimeError(
+            "precision=w4 requires bitsandbytes, but it is not installed in this Python environment. "
+            "Install it in the active Great Lakes venv with `python -m pip install -r requirements.txt` "
+            "or `python -m pip install 'bitsandbytes>=0.43.0'`."
+        )
+
+
 def load_eval_rows(split: str, limit: int) -> list[dict[str, str]]:
     dataset = load_dataset("openai/gsm8k", "main", split=split)
     if limit:
@@ -456,6 +469,8 @@ def print_verdict(delta_fp16: float | None, delta_w4: float | None, gain_surviva
 
 def main() -> None:
     args = parse_args()
+    validate_runtime_for_precisions(args.precisions)
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
