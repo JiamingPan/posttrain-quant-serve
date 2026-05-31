@@ -1,4 +1,4 @@
-"""Compare FP16 and bnb-NF4 W4 base/GRPO checkpoints on GSM8K.
+"""Compare FP16 and quantized base/GRPO checkpoints on GSM8K.
 
 Default limit is 50 examples. Use --limit 100 when you want a less noisy W4
 delta after the smoke path is working.
@@ -22,10 +22,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 
 HONESTY_NOTE = (
-    "W4 = bitsandbytes NF4 double-quant, a load-time 4-bit scheme. "
-    "This is NOT AWQ W4G128; an AWQ run is needed to confirm the result is not "
-    "specific to the bnb scheme. Greedy decoding (do_sample=False); accuracy is "
-    "exact-match on the parsed #### answer."
+    "w4 = bitsandbytes NF4 double-quant, a load-time 4-bit scheme. "
+    "awq = saved AutoAWQ W4G128 checkpoint, a calibration-aware weight-only scheme. "
+    "Greedy decoding (do_sample=False); accuracy is exact-match on the parsed #### answer."
 )
 
 
@@ -41,6 +40,8 @@ def format_prompt(question: str) -> str:
 def parse_args() -> argparse.Namespace:
     pqs_root = os.environ.get("PQS_ROOT", "/scratch/huterer_root/huterer0/jiamingp/pqs")
     default_trained = f"{pqs_root}/ckpts/qwen2_5_0_5b_grpo_g8_dr100"
+    default_base_awq = f"{pqs_root}/ckpts_awq/qwen2_5_0_5b_base_awq_w4g128"
+    default_trained_awq = f"{pqs_root}/ckpts_awq/qwen2_5_0_5b_g8_dr100_awq_w4g128"
     default_output = f"{pqs_root}/evals/gsm8k_compare_test50_g8_dr100_bnb_w4"
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -50,6 +51,8 @@ def parse_args() -> argparse.Namespace:
         default=default_trained,
         help="GRPO checkpoint to evaluate; defaults to the Day 3 g8_dr100 checkpoint under PQS_ROOT.",
     )
+    parser.add_argument("--base_awq_model", default=default_base_awq)
+    parser.add_argument("--trained_awq_model", default=default_trained_awq)
     parser.add_argument("--output_dir", default=default_output)
     parser.add_argument("--split", default="test", choices=["train", "test"])
     parser.add_argument("--limit", type=int, default=50, help="Use 50 for smoke; use 100 to reduce W4 delta noise.")
@@ -59,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--precisions",
         default="fp16,w4",
-        help="Comma-separated precisions to run: fp16, w4, or fp16,w4.",
+        help="Comma-separated precisions to run: fp16, w4, awq, or a combination.",
     )
     parser.add_argument("--skip_reference_ppl", action="store_true")
     parser.add_argument("--trust_remote_code", action="store_true")
@@ -69,28 +72,33 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_precisions(value: str, parser: argparse.ArgumentParser) -> list[str]:
-    allowed = {"fp16", "w4"}
+    allowed = {"fp16", "w4", "awq"}
     precisions = [item.strip().lower() for item in value.split(",") if item.strip()]
     if not precisions:
-        parser.error("--precisions must include at least one of: fp16,w4")
+        parser.error("--precisions must include at least one of: fp16,w4,awq")
     invalid = [item for item in precisions if item not in allowed]
     if invalid:
-        parser.error(f"unsupported --precisions entries: {invalid}; use fp16,w4")
+        parser.error(f"unsupported --precisions entries: {invalid}; use fp16,w4,awq")
     if len(set(precisions)) != len(precisions):
         parser.error(f"--precisions contains duplicates: {precisions}")
     return precisions
 
 
 def validate_runtime_for_precisions(precisions: list[str]) -> None:
-    if "w4" not in precisions:
+    if "w4" not in precisions and "awq" not in precisions:
         return
     if not torch.cuda.is_available():
-        raise RuntimeError("precision=w4 requires CUDA because bitsandbytes 4-bit loading needs a GPU.")
-    if importlib.util.find_spec("bitsandbytes") is None:
+        raise RuntimeError("quantized precision eval requires CUDA.")
+    if "w4" in precisions and importlib.util.find_spec("bitsandbytes") is None:
         raise RuntimeError(
             "precision=w4 requires bitsandbytes, but it is not installed in this Python environment. "
             "Install it in the active Great Lakes venv with `python -m pip install -r requirements.txt` "
             "or `python -m pip install 'bitsandbytes>=0.43.0'`."
+        )
+    if "awq" in precisions and importlib.util.find_spec("awq") is None:
+        raise RuntimeError(
+            "precision=awq requires AutoAWQ. Install optional AWQ deps with "
+            "`python -m pip install -r requirements-awq.txt`."
         )
 
 
@@ -146,6 +154,16 @@ def load_model(model_name_or_path: str, precision: str, trust_remote_code: bool)
         model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
             quantization_config=quant_config,
+            device_map={"": 0},
+            trust_remote_code=trust_remote_code,
+        )
+    elif precision == "awq":
+        if device.type != "cuda":
+            raise RuntimeError("precision=awq requires CUDA.")
+        if importlib.util.find_spec("awq") is None:
+            raise RuntimeError("precision=awq requires AutoAWQ. Install it with `pip install -r requirements-awq.txt`.")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
             device_map={"": 0},
             trust_remote_code=trust_remote_code,
         )
@@ -381,9 +399,10 @@ def write_paired_quant_effect(output_dir: Path, variant_names: list[str]) -> dic
         "index",
         "target_answer",
         "fp16_answer",
-        "w4_answer",
+        "quant_precision",
+        "quant_answer",
         "fp16_correct",
-        "w4_correct",
+        "quant_correct",
         "quant_change",
         "question",
     ]
@@ -394,28 +413,32 @@ def write_paired_quant_effect(output_dir: Path, variant_names: list[str]) -> dic
         writer.writeheader()
         for variant in variant_names:
             fp16_rows = read_predictions(output_dir, f"{variant}_fp16")
-            w4_rows = read_predictions(output_dir, f"{variant}_w4")
-            if not fp16_rows or not w4_rows:
+            if not fp16_rows:
                 continue
+            for quant_precision in ["w4", "awq"]:
+                quant_rows = read_predictions(output_dir, f"{variant}_{quant_precision}")
+                if not quant_rows:
+                    continue
 
-            counts = {"improved": 0, "worsened": 0, "unchanged": 0}
-            for fp16, w4 in zip(fp16_rows, w4_rows):
-                change = classify_change(bool(fp16["exact_match"]), bool(w4["exact_match"]))
-                counts[change] += 1
-                writer.writerow(
-                    {
-                        "variant": variant,
-                        "index": fp16["index"],
-                        "target_answer": fp16["target_answer"],
-                        "fp16_answer": fp16["parsed_answer"],
-                        "w4_answer": w4["parsed_answer"],
-                        "fp16_correct": fp16["exact_match"],
-                        "w4_correct": w4["exact_match"],
-                        "quant_change": change,
-                        "question": fp16["question"],
-                    }
-                )
-            quant_effect[variant] = counts
+                counts = {"improved": 0, "worsened": 0, "unchanged": 0}
+                for fp16, quant in zip(fp16_rows, quant_rows):
+                    change = classify_change(bool(fp16["exact_match"]), bool(quant["exact_match"]))
+                    counts[change] += 1
+                    writer.writerow(
+                        {
+                            "variant": variant,
+                            "index": fp16["index"],
+                            "target_answer": fp16["target_answer"],
+                            "fp16_answer": fp16["parsed_answer"],
+                            "quant_precision": quant_precision,
+                            "quant_answer": quant["parsed_answer"],
+                            "fp16_correct": fp16["exact_match"],
+                            "quant_correct": quant["exact_match"],
+                            "quant_change": change,
+                            "question": fp16["question"],
+                        }
+                    )
+                quant_effect[f"{variant}_{quant_precision}"] = counts
 
     return {
         "paired_quant_effect_path": str(paired_path),
@@ -481,6 +504,35 @@ def print_verdict(delta_fp16: float | None, delta_w4: float | None, gain_surviva
     )
 
 
+def model_path_for_precision(variant: str, precision: str, args: argparse.Namespace) -> str:
+    if variant == "base" and precision == "awq":
+        return args.base_awq_model
+    if variant == "g8_dr100" and precision == "awq":
+        return args.trained_awq_model
+    if variant == "base":
+        return args.base_model
+    return args.trained_model
+
+
+def add_quant_metrics(summary: dict[str, object], variant_summaries: dict[str, dict[str, object]]) -> None:
+    delta_fp16 = accuracy_delta(variant_summaries, "g8_dr100_fp16", "base_fp16")
+    summary["delta_fp16"] = delta_fp16
+    for precision in ["w4", "awq"]:
+        delta = accuracy_delta(variant_summaries, f"g8_dr100_{precision}", f"base_{precision}")
+        gain_survival = delta - delta_fp16 if delta is not None and delta_fp16 is not None else None
+        quant_drop_base = accuracy_delta(variant_summaries, "base_fp16", f"base_{precision}")
+        quant_drop_g8 = accuracy_delta(variant_summaries, "g8_dr100_fp16", f"g8_dr100_{precision}")
+        summary[f"delta_{precision}"] = delta
+        summary[f"gain_survival_{precision}"] = gain_survival
+        summary[f"quant_drop_base_{precision}"] = quant_drop_base
+        summary[f"quant_drop_g8_{precision}"] = quant_drop_g8
+
+    # Keep the original W4 keys for notebooks already written against them.
+    summary["gain_survival"] = summary.get("gain_survival_w4")
+    summary["quant_drop_base"] = summary.get("quant_drop_base_w4")
+    summary["quant_drop_g8"] = summary.get("quant_drop_g8_w4")
+
+
 def main() -> None:
     args = parse_args()
     validate_runtime_for_precisions(args.precisions)
@@ -494,8 +546,8 @@ def main() -> None:
 
     variants = []
     for precision in args.precisions:
-        variants.append(("base", args.base_model, precision))
-        variants.append(("g8_dr100", args.trained_model, precision))
+        variants.append(("base", model_path_for_precision("base", precision, args), precision))
+        variants.append(("g8_dr100", model_path_for_precision("g8_dr100", precision, args), precision))
 
     summaries = [
         evaluate_model(variant, precision, model_path, rows, args, output_dir)
@@ -505,27 +557,20 @@ def main() -> None:
     quant_comparison = write_paired_quant_effect(output_dir, ["base", "g8_dr100"])
     variant_summaries = {str(summary["label"]): summary for summary in summaries}
 
-    delta_fp16 = accuracy_delta(variant_summaries, "g8_dr100_fp16", "base_fp16")
-    delta_w4 = accuracy_delta(variant_summaries, "g8_dr100_w4", "base_w4")
-    gain_survival = delta_w4 - delta_fp16 if delta_w4 is not None and delta_fp16 is not None else None
-    quant_drop_base = accuracy_delta(variant_summaries, "base_fp16", "base_w4")
-    quant_drop_g8 = accuracy_delta(variant_summaries, "g8_dr100_fp16", "g8_dr100_w4")
     summary = {
         "split": args.split,
         "limit": args.limit,
         "precisions": args.precisions,
+        "base_awq_model": args.base_awq_model,
+        "trained_awq_model": args.trained_awq_model,
         "notes": [HONESTY_NOTE],
         "variants": variant_summaries,
         "results_matrix_path": results_matrix_path,
-        "delta_fp16": delta_fp16,
-        "delta_w4": delta_w4,
-        "gain_survival": gain_survival,
-        "quant_drop_base": quant_drop_base,
-        "quant_drop_g8": quant_drop_g8,
         **variant_summaries,
-        **legacy_fp16_aliases(variant_summaries, delta_fp16),
         **quant_comparison,
     }
+    add_quant_metrics(summary, variant_summaries)
+    summary.update(legacy_fp16_aliases(variant_summaries, summary.get("delta_fp16")))
     summary_path = output_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2) + "\n")
 
@@ -536,7 +581,21 @@ def main() -> None:
     print(f"\nWrote {summary_path}")
     print(f"Wrote {results_matrix_path}")
     print(f"Wrote {quant_comparison['paired_quant_effect_path']}")
-    print_verdict(delta_fp16, delta_w4, gain_survival)
+    if "w4" in args.precisions or args.precisions == ["fp16"]:
+        print_verdict(summary.get("delta_fp16"), summary.get("delta_w4"), summary.get("gain_survival_w4"))
+    if "awq" in args.precisions and summary.get("delta_awq") is not None:
+        print(
+            "AWQ verdict: "
+            f"RL gain at FP16 = {format_delta(summary.get('delta_fp16'))}, "
+            f"at AWQ = {format_delta(summary.get('delta_awq'))}, "
+            f"survival = {format_delta(summary.get('gain_survival_awq'))}.",
+            flush=True,
+        )
+    elif "awq" in args.precisions:
+        print(
+            "AWQ verdict: Need both FP16 and AWQ rows to measure whether the GRPO gain survives AWQ.",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

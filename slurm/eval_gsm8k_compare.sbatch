@@ -27,6 +27,8 @@ python scripts/cluster_check.py
 
 BASE_MODEL="${BASE_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
 TRAINED_MODEL="${TRAINED_MODEL:-$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_g8_dr100}"
+BASE_AWQ_MODEL="${BASE_AWQ_MODEL:-$PQS_ROOT/ckpts_awq/qwen2_5_0_5b_base_awq_w4g128}"
+TRAINED_AWQ_MODEL="${TRAINED_AWQ_MODEL:-$PQS_ROOT/ckpts_awq/qwen2_5_0_5b_g8_dr100_awq_w4g128}"
 EVAL_SPLIT="${EVAL_SPLIT:-test}"
 EVAL_LIMIT="${EVAL_LIMIT:-50}"
 PRECISIONS="${PRECISIONS:-fp16,w4}"
@@ -42,6 +44,8 @@ fi
 python scripts/eval_gsm8k_compare.py \
   --base_model "$BASE_MODEL" \
   --trained_model "$TRAINED_MODEL" \
+  --base_awq_model "$BASE_AWQ_MODEL" \
+  --trained_awq_model "$TRAINED_AWQ_MODEL" \
   --output_dir "$EVAL_OUTPUT_DIR" \
   --split "$EVAL_SPLIT" \
   --limit "$EVAL_LIMIT" \
