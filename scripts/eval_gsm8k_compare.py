@@ -447,9 +447,23 @@ def format_delta(value: float | None) -> str:
 
 
 def print_verdict(delta_fp16: float | None, delta_w4: float | None, gain_survival: float | None) -> None:
+    if delta_fp16 is not None and delta_w4 is None:
+        print(
+            "\nVerdict: Only FP16 was evaluated, so W4 survival cannot be measured in this run. "
+            f"RL gain at FP16 = {format_delta(delta_fp16)}.",
+            flush=True,
+        )
+        return
+    if delta_fp16 is None and delta_w4 is not None:
+        print(
+            "\nVerdict: Only W4 was evaluated, so W4 survival relative to FP16 cannot be measured in this run. "
+            f"RL gain at W4 = {format_delta(delta_w4)}.",
+            flush=True,
+        )
+        return
     if delta_fp16 is None or delta_w4 is None or gain_survival is None:
         print(
-            "\nVerdict: W4 was not evaluated, so only the FP16 baseline/GRPO comparison is available.",
+            "\nVerdict: Need both FP16 and W4 rows to measure whether the GRPO gain survives quantization.",
             flush=True,
         )
         return
