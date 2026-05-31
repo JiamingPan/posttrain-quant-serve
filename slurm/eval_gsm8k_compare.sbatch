@@ -31,6 +31,7 @@ EVAL_LIMIT="${EVAL_LIMIT:-50}"
 PRECISIONS="${PRECISIONS:-fp16,w4}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-96}"
 MAX_REFERENCE_TOKENS="${MAX_REFERENCE_TOKENS:-512}"
+DENSE_DTYPE="${DENSE_DTYPE:-bf16}"
 PRECISION_SLUG="${PRECISIONS//,/_}"
 EVAL_OUTPUT_DIR="${EVAL_OUTPUT_DIR:-$PQS_ROOT/evals/gsm8k_compare_${EVAL_SPLIT}${EVAL_LIMIT}_${MODEL_TAG}_g8_dr100_${PRECISION_SLUG}}"
 
@@ -61,4 +62,5 @@ python scripts/eval_gsm8k_compare.py \
   --precisions "$PRECISIONS" \
   --max_new_tokens "$MAX_NEW_TOKENS" \
   --max_reference_tokens "$MAX_REFERENCE_TOKENS" \
+  --dense_dtype "$DENSE_DTYPE" \
   "${ppl_args[@]}"

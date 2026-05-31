@@ -24,7 +24,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 HONESTY_NOTE = (
     "w4 = bitsandbytes NF4 double-quant, a load-time 4-bit scheme. "
     "awq = saved AutoAWQ W4G128 checkpoint, a calibration-aware weight-only scheme. "
-    "Greedy decoding (do_sample=False); accuracy is exact-match on the parsed #### answer."
+    "Greedy decoding (do_sample=False); accuracy is exact-match on the parsed #### answer. "
+    "Dense fp16 rows use --dense_dtype, bf16 by default on CUDA."
 )
 
 
@@ -73,6 +74,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_prompt_length", type=int, default=1024)
     parser.add_argument("--max_reference_tokens", type=int, default=512)
     parser.add_argument("--max_new_tokens", type=int, default=96)
+    parser.add_argument(
+        "--dense_dtype",
+        default=os.environ.get("DENSE_DTYPE", "bf16"),
+        choices=["bf16", "bfloat16", "fp16", "float16", "fp32", "float32"],
+        help="Torch dtype for dense fp16/bf16 rows. Default keeps previous CUDA behavior: bf16.",
+    )
     parser.add_argument(
         "--precisions",
         default="fp16,w4",
@@ -146,6 +153,20 @@ def validate_runtime_for_precisions(precisions: list[str]) -> None:
         )
 
 
+def dense_dtype_from_arg(value: str, device: torch.device) -> torch.dtype:
+    if device.type != "cuda":
+        return torch.float32
+    mapping = {
+        "bf16": torch.bfloat16,
+        "bfloat16": torch.bfloat16,
+        "fp16": torch.float16,
+        "float16": torch.float16,
+        "fp32": torch.float32,
+        "float32": torch.float32,
+    }
+    return mapping[value]
+
+
 def load_eval_rows(split: str, limit: int) -> list[dict[str, str]]:
     dataset = load_dataset("openai/gsm8k", "main", split=split)
     if limit:
@@ -166,22 +187,22 @@ def load_eval_rows(split: str, limit: int) -> list[dict[str, str]]:
     return rows
 
 
-def load_model(model_name_or_path: str, precision: str, trust_remote_code: bool):
+def load_model(model_name_or_path: str, precision: str, args: argparse.Namespace):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     tokenizer = AutoTokenizer.from_pretrained(
         model_name_or_path,
-        trust_remote_code=trust_remote_code,
+        trust_remote_code=args.trust_remote_code,
     )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     if precision == "fp16":
-        dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+        dtype = dense_dtype_from_arg(args.dense_dtype, device)
         model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
             torch_dtype=dtype,
-            trust_remote_code=trust_remote_code,
+            trust_remote_code=args.trust_remote_code,
         )
         model.to(device)
     elif precision == "w4":
@@ -199,7 +220,7 @@ def load_model(model_name_or_path: str, precision: str, trust_remote_code: bool)
             model_name_or_path,
             quantization_config=quant_config,
             device_map={"": 0},
-            trust_remote_code=trust_remote_code,
+            trust_remote_code=args.trust_remote_code,
         )
     elif precision == "awq":
         if device.type != "cuda":
@@ -213,7 +234,7 @@ def load_model(model_name_or_path: str, precision: str, trust_remote_code: bool)
             model_name_or_path,
             dtype=torch.float16,
             device_map={"": 0},
-            trust_remote_code=trust_remote_code,
+            trust_remote_code=args.trust_remote_code,
         )
     else:
         raise ValueError(f"Unsupported precision: {precision}")
@@ -222,8 +243,17 @@ def load_model(model_name_or_path: str, precision: str, trust_remote_code: bool)
     return model, tokenizer, device
 
 
+def eos_token_ids(tokenizer) -> set[int]:
+    value = tokenizer.eos_token_id
+    if value is None:
+        return set()
+    if isinstance(value, int):
+        return {value}
+    return {int(item) for item in value}
+
+
 @torch.inference_mode()
-def generate_one(model, tokenizer, device, prompt: str, max_prompt_length: int, max_new_tokens: int) -> str:
+def generate_one(model, tokenizer, device, prompt: str, max_prompt_length: int, max_new_tokens: int) -> dict[str, object]:
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
@@ -244,7 +274,16 @@ def generate_one(model, tokenizer, device, prompt: str, max_prompt_length: int, 
     output = model.generate(**generation_kwargs)
     prompt_tokens = inputs["input_ids"].shape[-1]
     completion_tokens = output[0, prompt_tokens:]
-    return tokenizer.decode(completion_tokens, skip_special_tokens=True)
+    completion_token_count = int(completion_tokens.numel())
+    eos_ids = eos_token_ids(tokenizer)
+    ended_with_eos = completion_token_count > 0 and int(completion_tokens[-1].item()) in eos_ids
+    hit_max_new_tokens = completion_token_count >= max_new_tokens and not ended_with_eos
+    return {
+        "completion": tokenizer.decode(completion_tokens, skip_special_tokens=True),
+        "completion_tokens": completion_token_count,
+        "hit_max_new_tokens": hit_max_new_tokens,
+        "ended_with_eos": ended_with_eos,
+    }
 
 
 @torch.inference_mode()
@@ -302,13 +341,16 @@ def evaluate_model(
 ) -> dict[str, float | int | str]:
     label = f"{variant}_{precision}"
     print(f"\n=== Evaluating {label}: {model_name_or_path} ===", flush=True)
-    model, tokenizer, device = load_model(model_name_or_path, precision, args.trust_remote_code)
+    model, tokenizer, device = load_model(model_name_or_path, precision, args)
 
     predictions_path = output_dir / f"{label}_predictions.jsonl"
     correct = 0
     parsed = 0
     prompt_leaks = 0
     completion_chars: list[int] = []
+    completion_token_counts: list[int] = []
+    hit_max_new_tokens = 0
+    ended_with_eos = 0
     nll_weighted_sum = 0.0
     nll_token_count = 0
 
@@ -330,7 +372,7 @@ def evaluate_model(
                     nll_weighted_sum += reference_nll * reference_tokens
                     nll_token_count += reference_tokens
 
-            completion = generate_one(
+            generation = generate_one(
                 model,
                 tokenizer,
                 device,
@@ -338,6 +380,10 @@ def evaluate_model(
                 args.max_prompt_length,
                 args.max_new_tokens,
             )
+            completion = str(generation["completion"])
+            completion_tokens = int(generation["completion_tokens"])
+            hit_max = bool(generation["hit_max_new_tokens"])
+            eos_finished = bool(generation["ended_with_eos"])
             pred = extract_model_answer(completion)
             is_correct = pred is not None and pred == row["target_answer"]
             leak = has_prompt_leak_after_answer(completion)
@@ -345,6 +391,9 @@ def evaluate_model(
             parsed += int(pred is not None)
             prompt_leaks += int(leak)
             completion_chars.append(len(completion))
+            completion_token_counts.append(completion_tokens)
+            hit_max_new_tokens += int(hit_max)
+            ended_with_eos += int(eos_finished)
 
             record = {
                 **row,
@@ -353,6 +402,9 @@ def evaluate_model(
                 "precision": precision,
                 "model_path": model_name_or_path,
                 "completion": completion,
+                "completion_tokens": completion_tokens,
+                "hit_max_new_tokens": hit_max,
+                "ended_with_eos": eos_finished,
                 "parsed_answer": pred,
                 "exact_match": is_correct,
                 "prompt_leak": leak,
@@ -384,6 +436,9 @@ def evaluate_model(
         "parse_rate": parsed / n if n else 0.0,
         "prompt_leak_rate": prompt_leaks / n if n else 0.0,
         "completion_chars_mean": sum(completion_chars) / n if n else 0.0,
+        "completion_tokens_mean": sum(completion_token_counts) / n if n else 0.0,
+        "hit_max_new_tokens_rate": hit_max_new_tokens / n if n else 0.0,
+        "ended_with_eos_rate": ended_with_eos / n if n else 0.0,
         "reference_nll_per_token": reference_nll_per_token,
         "reference_ppl": reference_ppl,
         "reference_ppl_token_count": nll_token_count,
@@ -411,6 +466,9 @@ def write_results_matrix(output_dir: Path, summaries: list[dict[str, float | int
         "parse_rate",
         "prompt_leak_rate",
         "completion_chars_mean",
+        "completion_tokens_mean",
+        "hit_max_new_tokens_rate",
+        "ended_with_eos_rate",
         "reference_nll_per_token",
         "reference_ppl",
         "reference_ppl_token_count",
