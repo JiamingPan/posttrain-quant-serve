@@ -29,7 +29,8 @@ MODEL_TAG="${MODEL_TAG:-qwen2_5_0_5b}"
 EVAL_SPLIT="${EVAL_SPLIT:-test}"
 EVAL_LIMIT="${EVAL_LIMIT:-50}"
 PRECISIONS="${PRECISIONS:-fp16,w4}"
-MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-96}"
+VARIANTS="${VARIANTS:-base,g8_dr100}"
+MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-512}"
 MAX_REFERENCE_TOKENS="${MAX_REFERENCE_TOKENS:-512}"
 DENSE_DTYPE="${DENSE_DTYPE:-bf16}"
 PRECISION_SLUG="${PRECISIONS//,/_}"
@@ -60,6 +61,7 @@ python scripts/eval_gsm8k_compare.py \
   --split "$EVAL_SPLIT" \
   --limit "$EVAL_LIMIT" \
   --precisions "$PRECISIONS" \
+  --variants "$VARIANTS" \
   --max_new_tokens "$MAX_NEW_TOKENS" \
   --max_reference_tokens "$MAX_REFERENCE_TOKENS" \
   --dense_dtype "$DENSE_DTYPE" \

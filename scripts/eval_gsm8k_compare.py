@@ -17,7 +17,12 @@ from pathlib import Path
 
 import torch
 from datasets import load_dataset
-from gsm8k_reward import extract_model_answer, extract_reference_answer, has_prompt_leak_after_answer
+from gsm8k_reward import (
+    build_gsm8k_chat_text,
+    extract_model_answer,
+    extract_reference_answer,
+    has_prompt_leak_after_answer,
+)
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 
@@ -25,6 +30,7 @@ HONESTY_NOTE = (
     "w4 = bitsandbytes NF4 double-quant, a load-time 4-bit scheme. "
     "awq = saved AutoAWQ W4G128 checkpoint, a calibration-aware weight-only scheme. "
     "Greedy decoding (do_sample=False); accuracy is exact-match on the parsed #### answer. "
+    "Prompts are formatted with the model tokenizer's chat template. "
     "Dense fp16 rows use --dense_dtype, bf16 by default on CUDA."
 )
 
@@ -33,16 +39,6 @@ DEFAULT_BASE_MODELS = {
     "qwen2_5_0_5b": "Qwen/Qwen2.5-0.5B-Instruct",
     "qwen2_5_1_5b": "Qwen/Qwen2.5-1.5B-Instruct",
 }
-
-
-def format_prompt(question: str) -> str:
-    return (
-        "Solve the math problem. Show the reasoning briefly. End with exactly one final line "
-        "in the form #### <answer>, then stop. Do not write another problem or dialogue "
-        "after the answer.\n\n"
-        f"Problem: {question}\n\nSolution:"
-    )
-
 
 def parse_args() -> argparse.Namespace:
     pqs_root = os.environ.get("PQS_ROOT", "/scratch/huterer_root/huterer0/jiamingp/pqs")
@@ -64,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--trained_model",
         default=None,
-        help="GRPO checkpoint to evaluate; defaults to the Day 3 g8_dr100 checkpoint under PQS_ROOT.",
+        help="GRPO checkpoint to evaluate; defaults to the chat-formatted g8_dr100 checkpoint under PQS_ROOT.",
     )
     parser.add_argument("--base_awq_model", default=None)
     parser.add_argument("--trained_awq_model", default=None)
@@ -73,7 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=50, help="Use 50 for smoke; use 100 to reduce W4 delta noise.")
     parser.add_argument("--max_prompt_length", type=int, default=1024)
     parser.add_argument("--max_reference_tokens", type=int, default=512)
-    parser.add_argument("--max_new_tokens", type=int, default=96)
+    parser.add_argument("--max_new_tokens", type=int, default=512)
     parser.add_argument(
         "--dense_dtype",
         default=os.environ.get("DENSE_DTYPE", "bf16"),
@@ -85,10 +81,16 @@ def parse_args() -> argparse.Namespace:
         default="fp16,w4",
         help="Comma-separated precisions to run: fp16, w4, awq, or a combination.",
     )
+    parser.add_argument(
+        "--variants",
+        default="base,g8_dr100",
+        help="Comma-separated variants to run: base, g8_dr100, or both.",
+    )
     parser.add_argument("--skip_reference_ppl", action="store_true")
     parser.add_argument("--trust_remote_code", action="store_true")
     args = parser.parse_args()
     args.precisions = parse_precisions(args.precisions, parser)
+    args.variants = parse_variants(args.variants, parser)
     apply_model_tag_defaults(args, parser, pqs_root)
     return args
 
@@ -104,16 +106,16 @@ def apply_model_tag_defaults(args: argparse.Namespace, parser: argparse.Argument
         args.base_model = base_model
 
     if args.trained_model is None:
-        args.trained_model = f"{pqs_root}/ckpts/{args.model_tag}_grpo_g8_dr100"
+        args.trained_model = f"{pqs_root}/ckpts/{args.model_tag}_grpo_g8_dr100_chat"
     if args.base_awq_model is None:
-        args.base_awq_model = f"{pqs_root}/ckpts_awq/{args.model_tag}_base_awq_w4g128"
+        args.base_awq_model = f"{pqs_root}/ckpts_awq/{args.model_tag}_base_awq_w4g128_chatcalib"
     if args.trained_awq_model is None:
-        args.trained_awq_model = f"{pqs_root}/ckpts_awq/{args.model_tag}_g8_dr100_awq_w4g128"
+        args.trained_awq_model = f"{pqs_root}/ckpts_awq/{args.model_tag}_g8_dr100_chat_awq_w4g128"
     if args.output_dir is None:
         precision_slug = "_".join(args.precisions)
         args.output_dir = (
             f"{pqs_root}/evals/gsm8k_compare_{args.split}{args.limit}_"
-            f"{args.model_tag}_g8_dr100_{precision_slug}"
+            f"{args.model_tag}_g8_dr100_chat_{precision_slug}"
         )
 
 
@@ -128,6 +130,19 @@ def parse_precisions(value: str, parser: argparse.ArgumentParser) -> list[str]:
     if len(set(precisions)) != len(precisions):
         parser.error(f"--precisions contains duplicates: {precisions}")
     return precisions
+
+
+def parse_variants(value: str, parser: argparse.ArgumentParser) -> list[str]:
+    allowed = {"base", "g8_dr100"}
+    variants = [item.strip().lower() for item in value.split(",") if item.strip()]
+    if not variants:
+        parser.error("--variants must include at least one of: base,g8_dr100")
+    invalid = [item for item in variants if item not in allowed]
+    if invalid:
+        parser.error(f"unsupported --variants entries: {invalid}; use base,g8_dr100")
+    if len(set(variants)) != len(variants):
+        parser.error(f"--variants contains duplicates: {variants}")
+    return variants
 
 
 def validate_runtime_for_precisions(precisions: list[str]) -> None:
@@ -181,7 +196,6 @@ def load_eval_rows(split: str, limit: int) -> list[dict[str, str]]:
                 "question": row["question"],
                 "reference": row["answer"],
                 "target_answer": target or "",
-                "prompt": format_prompt(row["question"]),
             }
         )
     return rows
@@ -243,13 +257,18 @@ def load_model(model_name_or_path: str, precision: str, args: argparse.Namespace
     return model, tokenizer, device
 
 
-def eos_token_ids(tokenizer) -> set[int]:
+def generation_stop_token_ids(tokenizer) -> set[int]:
+    stop_ids = set()
     value = tokenizer.eos_token_id
-    if value is None:
-        return set()
     if isinstance(value, int):
-        return {value}
-    return {int(item) for item in value}
+        stop_ids.add(value)
+    elif value is not None:
+        stop_ids.update(int(item) for item in value)
+
+    im_end = tokenizer.convert_tokens_to_ids("<|im_end|>")
+    if isinstance(im_end, int) and im_end >= 0:
+        stop_ids.add(im_end)
+    return stop_ids
 
 
 @torch.inference_mode()
@@ -259,8 +278,10 @@ def generate_one(model, tokenizer, device, prompt: str, max_prompt_length: int, 
         return_tensors="pt",
         truncation=True,
         max_length=max_prompt_length,
+        add_special_tokens=False,
     )
     inputs = {key: value.to(device) for key, value in inputs.items()}
+    stop_ids = generation_stop_token_ids(tokenizer)
 
     generation_kwargs = {
         **inputs,
@@ -268,15 +289,14 @@ def generate_one(model, tokenizer, device, prompt: str, max_prompt_length: int, 
         "do_sample": False,
         "pad_token_id": tokenizer.pad_token_id,
     }
-    if tokenizer.eos_token_id is not None:
-        generation_kwargs["eos_token_id"] = tokenizer.eos_token_id
+    if stop_ids:
+        generation_kwargs["eos_token_id"] = sorted(stop_ids)
 
     output = model.generate(**generation_kwargs)
     prompt_tokens = inputs["input_ids"].shape[-1]
     completion_tokens = output[0, prompt_tokens:]
     completion_token_count = int(completion_tokens.numel())
-    eos_ids = eos_token_ids(tokenizer)
-    ended_with_eos = completion_token_count > 0 and int(completion_tokens[-1].item()) in eos_ids
+    ended_with_eos = completion_token_count > 0 and int(completion_tokens[-1].item()) in stop_ids
     hit_max_new_tokens = completion_token_count >= max_new_tokens and not ended_with_eos
     return {
         "completion": tokenizer.decode(completion_tokens, skip_special_tokens=True),
@@ -302,12 +322,14 @@ def score_reference_solution(
         return_tensors="pt",
         truncation=True,
         max_length=max_prompt_length,
+        add_special_tokens=False,
     )
     full_inputs = tokenizer(
         prompt + "\n" + reference,
         return_tensors="pt",
         truncation=True,
         max_length=max_prompt_length + max_reference_tokens,
+        add_special_tokens=False,
     )
 
     input_ids = full_inputs["input_ids"].to(device)
@@ -356,6 +378,7 @@ def evaluate_model(
 
     with predictions_path.open("w") as f:
         for row in rows:
+            prompt = build_gsm8k_chat_text(tokenizer, row["question"])
             reference_nll = None
             reference_tokens = 0
             if not args.skip_reference_ppl:
@@ -363,7 +386,7 @@ def evaluate_model(
                     model,
                     tokenizer,
                     device,
-                    row["prompt"],
+                    prompt,
                     row["reference"],
                     args.max_prompt_length,
                     args.max_reference_tokens,
@@ -376,7 +399,7 @@ def evaluate_model(
                 model,
                 tokenizer,
                 device,
-                row["prompt"],
+                prompt,
                 args.max_prompt_length,
                 args.max_new_tokens,
             )
@@ -397,6 +420,7 @@ def evaluate_model(
 
             record = {
                 **row,
+                "prompt": prompt,
                 "model_label": label,
                 "variant": variant,
                 "precision": precision,
@@ -652,15 +676,15 @@ def main() -> None:
 
     variants = []
     for precision in args.precisions:
-        variants.append(("base", model_path_for_precision("base", precision, args), precision))
-        variants.append(("g8_dr100", model_path_for_precision("g8_dr100", precision, args), precision))
+        for variant in args.variants:
+            variants.append((variant, model_path_for_precision(variant, precision, args), precision))
 
     summaries = [
         evaluate_model(variant, precision, model_path, rows, args, output_dir)
         for variant, model_path, precision in variants
     ]
     results_matrix_path = write_results_matrix(output_dir, summaries)
-    quant_comparison = write_paired_quant_effect(output_dir, ["base", "g8_dr100"])
+    quant_comparison = write_paired_quant_effect(output_dir, args.variants)
     variant_summaries = {str(summary["label"]): summary for summary in summaries}
 
     summary = {

@@ -26,6 +26,20 @@ PROMPT_LEAK_AFTER_ANSWER_RE = re.compile(
 PROMPT_LEAK_AFTER_ANSWER_PENALTY = 0.25
 
 
+def build_gsm8k_chat_text(tokenizer: Any, question: str) -> str:
+    user_msg = (
+        "Solve the math problem. Show the reasoning briefly. End with exactly one final line "
+        "in the form #### <answer>, then stop. Do not write another problem or dialogue "
+        "after the answer.\n\n"
+        f"Problem: {question}"
+    )
+    return tokenizer.apply_chat_template(
+        [{"role": "user", "content": user_msg}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+
+
 def normalize_number(value: str | None) -> str | None:
     if value is None:
         return None

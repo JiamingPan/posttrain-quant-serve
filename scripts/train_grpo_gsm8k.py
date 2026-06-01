@@ -4,30 +4,52 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import fields
+from statistics import pstdev
 from typing import Any
 
 from datasets import load_dataset
-from gsm8k_reward import gsm8k_exact_match_reward
+from gsm8k_reward import build_gsm8k_chat_text, gsm8k_exact_match_reward
+from transformers import AutoTokenizer
 from trl import GRPOConfig, GRPOTrainer
 
 
-def format_prompt(question: str) -> str:
-    return (
-        "Solve the math problem. Show the reasoning briefly. End with exactly one final line "
-        "in the form #### <answer>, then stop. Do not write another problem or dialogue "
-        "after the answer.\n\n"
-        f"Problem: {question}\n\nSolution:"
-    )
-
-
-def build_dataset(split: str, limit: int | None):
+def build_dataset(split: str, limit: int | None, tokenizer: Any):
     dataset = load_dataset("openai/gsm8k", "main", split=split)
     if limit is not None:
         dataset = dataset.select(range(min(limit, len(dataset))))
     return dataset.map(
-        lambda row: {"prompt": format_prompt(row["question"]), "answer": row["answer"]},
+        lambda row: {"prompt": build_gsm8k_chat_text(tokenizer, row["question"]), "answer": row["answer"]},
         remove_columns=[col for col in dataset.column_names if col not in {"answer"}],
     )
+
+
+class RewardWithDiagnostics:
+    def __init__(self, num_generations: int) -> None:
+        self.num_generations = num_generations
+        self.call_index = 0
+        self.__name__ = "gsm8k_exact_match_reward_with_diagnostics"
+
+    def __call__(self, completions: list[Any], answer: list[str], **kwargs: Any) -> list[float]:
+        rewards = gsm8k_exact_match_reward(completions, answer, **kwargs)
+        self.call_index += 1
+        group_stats = []
+        for start in range(0, len(rewards), self.num_generations):
+            group = rewards[start : start + self.num_generations]
+            if len(group) == self.num_generations:
+                group_stats.append(len(set(group)) == 1)
+        zero_variance_frac = sum(group_stats) / len(group_stats) if group_stats else 0.0
+        reward_mean = sum(rewards) / len(rewards) if rewards else 0.0
+        reward_std = pstdev(rewards) if len(rewards) > 1 else 0.0
+        print(
+            "[reward_diag] "
+            f"call={self.call_index} "
+            f"reward_mean={reward_mean:.4f} "
+            f"reward_std={reward_std:.4f} "
+            f"zero_reward_variance_group_frac={zero_variance_frac:.4f} "
+            f"groups={len(group_stats)}",
+            flush=True,
+        )
+        return rewards
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,7 +125,8 @@ def build_grpo_config(**kwargs: Any) -> GRPOConfig:
 
 def main() -> None:
     args = parse_args()
-    train_dataset = build_dataset(args.split, args.dataset_limit)
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    train_dataset = build_dataset(args.split, args.dataset_limit, tokenizer)
 
     config_kwargs: dict[str, Any] = dict(
         output_dir=args.output_dir,
@@ -143,7 +166,7 @@ def main() -> None:
 
     trainer = GRPOTrainer(
         model=args.model,
-        reward_funcs=gsm8k_exact_match_reward,
+        reward_funcs=RewardWithDiagnostics(args.num_generations),
         args=training_args,
         train_dataset=train_dataset,
     )

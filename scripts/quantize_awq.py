@@ -14,16 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from datasets import load_dataset
+from gsm8k_reward import build_gsm8k_chat_text
 from transformers import AutoTokenizer
-
-
-def format_prompt(question: str) -> str:
-    return (
-        "Solve the math problem. Show the reasoning briefly. End with exactly one final line "
-        "in the form #### <answer>, then stop. Do not write another problem or dialogue "
-        "after the answer.\n\n"
-        f"Problem: {question}\n\nSolution:"
-    )
 
 
 def str_to_bool(value: str) -> bool:
@@ -62,7 +54,7 @@ def require_autoawq() -> Any:
     return AutoAWQForCausalLM
 
 
-def load_calibration_texts(split: str, limit: int) -> list[str]:
+def load_calibration_texts(split: str, limit: int, tokenizer: Any) -> list[str]:
     dataset = load_dataset("openai/gsm8k", "main", split=split)
     if limit:
         dataset = dataset.select(range(min(limit, len(dataset))))
@@ -71,7 +63,8 @@ def load_calibration_texts(split: str, limit: int) -> list[str]:
     for row in dataset:
         # AWQ calibrates activation scales, so include the task prompt and the
         # reference solution in the same format used by evaluation.
-        texts.append(f"{format_prompt(row['question'])}\n{row['answer']}")
+        prompt = build_gsm8k_chat_text(tokenizer, row["question"])
+        texts.append(f"{prompt}\n{row['answer']}")
     return texts
 
 
@@ -85,7 +78,13 @@ def main() -> None:
         "w_bit": args.w_bit,
         "version": args.version,
     }
-    calib_data = load_calibration_texts(args.calib_split, args.calib_limit)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name_or_path,
+        trust_remote_code=args.trust_remote_code,
+    )
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    calib_data = load_calibration_texts(args.calib_split, args.calib_limit, tokenizer)
 
     print("=== AWQ quantization config ===", flush=True)
     print(json.dumps(quant_config, indent=2), flush=True)
@@ -99,13 +98,6 @@ def main() -> None:
         use_cache=False,
         trust_remote_code=args.trust_remote_code,
     )
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name_or_path,
-        trust_remote_code=args.trust_remote_code,
-    )
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
     model.quantize(
         tokenizer,
         quant_config=quant_config,
@@ -127,7 +119,7 @@ def main() -> None:
         "calib_limit": args.calib_limit,
         "max_calib_seq_len": args.max_calib_seq_len,
         "n_parallel_calib_samples": args.n_parallel_calib_samples,
-        "note": "AWQ W4G128 quantized with AutoAWQ on GSM8K-formatted calibration text.",
+        "note": "AWQ W4G128 quantized with AutoAWQ on chat-formatted GSM8K calibration text.",
     }
     (args.output_dir / "awq_quantize_metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     print(f'AWQ model saved at "{args.output_dir}"', flush=True)
