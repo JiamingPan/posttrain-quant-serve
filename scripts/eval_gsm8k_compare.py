@@ -41,7 +41,7 @@ DEFAULT_BASE_MODELS = {
 }
 
 def parse_args() -> argparse.Namespace:
-    pqs_root = os.environ.get("PQS_ROOT", "/scratch/huterer_root/huterer0/jiamingp/pqs")
+    pqs_root = os.environ.get("PQS_ROOT", str(Path.home() / "pqs"))
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(

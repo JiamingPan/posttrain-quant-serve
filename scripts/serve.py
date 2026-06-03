@@ -14,7 +14,7 @@ Start an OpenAI-compatible vLLM server for a saved AWQ W4G128 checkpoint:
 
     python scripts/serve.py \
       --mode server \
-      --model /scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
+      --model $PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
       --quantization awq \
       --port 8000
 
@@ -23,7 +23,7 @@ Smoke the server from another shell:
     curl http://127.0.0.1:8000/v1/completions \
       -H 'Content-Type: application/json' \
       -d '{
-        "model": "/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128",
+        "model": "$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128",
         "prompt": "Solve the math problem. Show the reasoning briefly. Problem: Janet has 3 bags with 4 marbles each. How many marbles does she have? End with #### <answer>.",
         "max_tokens": 128,
         "temperature": 0

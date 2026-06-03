@@ -11,7 +11,7 @@ For this project, both are needed.
 The GRPO smoke run updated model weights for 100 optimizer steps and saved the result under:
 
 ```text
-/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_100step
+$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo_100step
 ```
 
 The notebook showed:
@@ -55,7 +55,7 @@ First run the training-set sanity check:
 
 ```bash
 sbatch --account=cavestru0 --time=00:30:00 \
-  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_100step \
+  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,EVAL_OUTPUT_DIR=$PQS_ROOT/evals/gsm8k_compare_train10_100step \
   slurm/eval_gsm8k_compare.sbatch
 ```
 
@@ -63,7 +63,7 @@ Then run a small held-out check:
 
 ```bash
 sbatch --account=cavestru0 --time=01:00:00 \
-  --export=ALL,EVAL_SPLIT=test,EVAL_LIMIT=50,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_test50_100step \
+  --export=ALL,EVAL_SPLIT=test,EVAL_LIMIT=50,EVAL_OUTPUT_DIR=$PQS_ROOT/evals/gsm8k_compare_test50_100step \
   slurm/eval_gsm8k_compare.sbatch
 ```
 
@@ -91,7 +91,7 @@ Interpretation:
 Inspect:
 
 ```bash
-cat /scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_100step/paired_comparison.csv
+cat $PQS_ROOT/evals/gsm8k_compare_train10_100step/paired_comparison.csv
 ```
 
 ## Leak-Penalty 300-Step Eval
@@ -100,7 +100,7 @@ After `checkpoint-300` exists, compare it against the base model:
 
 ```bash
 sbatch --account=cavestru0 --time=00:45:00 \
-  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_leak300 \
+  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,TRAINED_MODEL=$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=$PQS_ROOT/evals/gsm8k_compare_train10_leak300 \
   slurm/eval_gsm8k_compare.sbatch
 ```
 

@@ -5,7 +5,7 @@
 #   MODEL=Qwen/Qwen2.5-1.5B-Instruct \
 #   LABEL=base_fp16 \
 #   QUANTIZATION=none \
-#   OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b \
+#   OUTPUT_DIR=$PQS_ROOT/results/serving/qwen2_5_1_5b \
 #   sbatch --account=huterer2 --time=00:45:00 --export=ALL slurm/serve_benchmark.sbatch
 
 #SBATCH --job-name=pqs-serve-bench

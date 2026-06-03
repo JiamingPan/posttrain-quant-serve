@@ -92,7 +92,7 @@ Day 6 is done as an interpretation/documentation cleanup day:
 Optional future cleanup:
 
 - run direct weight diagnostics on
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat`
+  `$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat`
   if the final writeup needs an exact data1000 weight-space claim.
 
 ## Project Scope Decision

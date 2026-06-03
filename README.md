@@ -113,7 +113,7 @@ a single-GPU measurement tool, not as a distributed serving stack.
 Install serving extras on Great Lakes if the Slurm wrapper has not already done it:
 
 ```bash
-cd /scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve
+cd $PQS_ROOT/repos/posttrain-quant-serve
 source scripts/activate_great_lakes.sh
 python -m pip install -r requirements-serving.txt
 ```
@@ -134,7 +134,7 @@ Serve the GRPO AWQ W4G128 checkpoint:
 ```bash
 python scripts/serve.py \
   --mode server \
-  --model /scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
+  --model $PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
   --quantization awq \
   --dtype float16 \
   --port 8000
@@ -159,7 +159,7 @@ Run the serving benchmark on one A40. These jobs do **not** retrain or reevaluat
 accuracy matrix; they only measure vLLM offline generation speed and memory.
 
 ```bash
-SERVE_OUT=/scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b
+SERVE_OUT=$PQS_ROOT/results/serving/qwen2_5_1_5b
 
 MODEL=Qwen/Qwen2.5-1.5B-Instruct \
 LABEL=base_fp16 \
@@ -171,7 +171,7 @@ sbatch --job-name=pqs-serve-base-fp16 \
   --export=ALL \
   slurm/serve_benchmark.sbatch
 
-MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
+MODEL=$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
 LABEL=grpo_fp16 \
 QUANTIZATION=none \
 OUTPUT_DIR=$SERVE_OUT \
@@ -181,7 +181,7 @@ sbatch --job-name=pqs-serve-grpo-fp16 \
   --export=ALL \
   slurm/serve_benchmark.sbatch
 
-MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib \
+MODEL=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib \
 LABEL=base_awq \
 QUANTIZATION=awq \
 OUTPUT_DIR=$SERVE_OUT \
@@ -191,7 +191,7 @@ sbatch --job-name=pqs-serve-base-awq \
   --export=ALL \
   slurm/serve_benchmark.sbatch
 
-MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
+MODEL=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
 LABEL=grpo_awq \
 QUANTIZATION=awq \
 OUTPUT_DIR=$SERVE_OUT \
@@ -205,8 +205,8 @@ sbatch --job-name=pqs-serve-grpo-awq \
 Raw benchmark rows land in:
 
 ```text
-/scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b/serving_benchmark.csv
-/scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b/serving_benchmark.jsonl
+$PQS_ROOT/results/serving/qwen2_5_1_5b/serving_benchmark.csv
+$PQS_ROOT/results/serving/qwen2_5_1_5b/serving_benchmark.jsonl
 ```
 
 The public table stub is `results/serving_benchmark.md`:

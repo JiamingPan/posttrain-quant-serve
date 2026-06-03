@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${PQS_ROOT:=/scratch/huterer_root/huterer0/jiamingp/pqs}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_PQS_ROOT="$(cd "$REPO_ROOT/../.." && pwd)"
+
+: "${PQS_ROOT:=$DEFAULT_PQS_ROOT}"
 : "${MODEL:=Qwen/Qwen2.5-0.5B-Instruct}"
 : "${OUTPUT_DIR:=$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo}"
 : "${MAX_STEPS:=5}"

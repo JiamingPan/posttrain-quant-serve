@@ -8,10 +8,10 @@ managed server process.
 Example:
 
     python scripts/benchmark.py \
-      --model /scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
+      --model $PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
       --label grpo_fp16 \
       --quantization none \
-      --output-dir /scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b
+      --output-dir $PQS_ROOT/results/serving/qwen2_5_1_5b
 """
 
 from __future__ import annotations

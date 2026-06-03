@@ -19,7 +19,7 @@ Real data1000 GRPO job:
 - job: `51190676`
 - state at launch: `RUNNING`
 - output checkpoint:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat`
+  `$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat`
 - wrapper commit: `5c5f9f2 Add GRPO data1000 training wrapper`
 - wrapper: `slurm/train_grpo.sbatch`
 
@@ -59,7 +59,7 @@ sacct -j 51190676 --format=JobID,JobName%25,State,ExitCode,Elapsed
 grep -n "=== GRPO train config ===" -A20 logs/pqs-grpo-data1000-51190676.out
 grep -n "reward_diag" logs/pqs-grpo-data1000-51190676.out | tail -n 20
 
-ls -lh /scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat
+ls -lh $PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat
 ```
 
 Guardrail: if `[reward_diag]` collapses early to `reward_std=0.0000` and
@@ -77,8 +77,8 @@ EVAL_SPLIT=test \
 EVAL_LIMIT=100 \
 DENSE_DTYPE=fp16 \
 SKIP_REFERENCE_PPL=1 \
-TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
-EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_chat_test100_qwen2_5_1_5b_data1000_fp16 \
+TRAINED_MODEL=$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
+EVAL_OUTPUT_DIR=$PQS_ROOT/evals/gsm8k_chat_test100_qwen2_5_1_5b_data1000_fp16 \
 sbatch --job-name=pqs-eval-data1000-fp16 \
   --account=cavestru0 \
   --time=00:45:00 \
@@ -89,7 +89,7 @@ sbatch --job-name=pqs-eval-data1000-fp16 \
 Read it:
 
 ```bash
-OUT=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_chat_test100_qwen2_5_1_5b_data1000_fp16
+OUT=$PQS_ROOT/evals/gsm8k_chat_test100_qwen2_5_1_5b_data1000_fp16
 cat "$OUT/results_matrix.csv"
 ```
 
@@ -115,7 +115,7 @@ Base AWQ with chat calibration:
 
 ```bash
 MODEL_NAME_OR_PATH=Qwen/Qwen2.5-1.5B-Instruct \
-AWQ_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib \
+AWQ_OUTPUT_DIR=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib \
 sbatch --job-name=pqs-awq-base-chat \
   --account=cavestru0 \
   --time=01:00:00 \
@@ -126,8 +126,8 @@ sbatch --job-name=pqs-awq-base-chat \
 Data1000 GRPO AWQ:
 
 ```bash
-MODEL_NAME_OR_PATH=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
-AWQ_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
+MODEL_NAME_OR_PATH=$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
+AWQ_OUTPUT_DIR=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
 sbatch --job-name=pqs-awq-data1000 \
   --account=cavestru0 \
   --time=01:00:00 \
@@ -146,10 +146,10 @@ EVAL_SPLIT=test \
 EVAL_LIMIT=100 \
 DENSE_DTYPE=fp16 \
 SKIP_REFERENCE_PPL=1 \
-TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
-BASE_AWQ_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib \
-TRAINED_AWQ_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
-EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_chat_test100_qwen2_5_1_5b_data1000_fp16_w4_awq \
+TRAINED_MODEL=$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
+BASE_AWQ_MODEL=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib \
+TRAINED_AWQ_MODEL=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
+EVAL_OUTPUT_DIR=$PQS_ROOT/evals/gsm8k_chat_test100_qwen2_5_1_5b_data1000_fp16_w4_awq \
 sbatch --job-name=pqs-eval-data1000-full \
   --account=cavestru0 \
   --time=01:30:00 \
@@ -209,13 +209,13 @@ Jobs:
 Artifacts:
 
 - GRPO checkpoint:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat`
+  `$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat`
 - base AWQ:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib`
+  `$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib`
 - GRPO AWQ:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128`
+  `$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128`
 - final eval:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_chat_test100_qwen2_5_1_5b_data1000_fp16_w4_awq`
+  `$PQS_ROOT/evals/gsm8k_chat_test100_qwen2_5_1_5b_data1000_fp16_w4_awq`
 
 ### Matrix
 

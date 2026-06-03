@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Start a Jupyter notebook server on a Great Lakes GPU node.
 #
-# Submit from anywhere:
-#   sbatch --account=huterer2 --time=06:00:00 /scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve/slurm/jupyter_gpu.sbatch
+# Submit from the repo root:
+#   mkdir -p logs
+#   sbatch --account=huterer2 --time=06:00:00 slurm/jupyter_gpu.sbatch
 #
 # Then read jupyter_info_gpu.txt for the SSH tunnel command.
 
@@ -13,12 +14,12 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH --time=06:00:00
-#SBATCH --chdir=/scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve
-#SBATCH --output=/scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve/logs/%x-%j.out
-#SBATCH --error=/scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve/logs/%x-%j.err
+#SBATCH --output=logs/%x-%j.out
+#SBATCH --error=logs/%x-%j.err
 
 set -euo pipefail
 
+cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs notebooks
 
 source scripts/activate_great_lakes.sh

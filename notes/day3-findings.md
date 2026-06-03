@@ -80,7 +80,7 @@ sbatch --job-name=pqs-eval-100-test50 \
   --time=01:00:00 \
   --output=logs/%x-%j.out \
   --error=logs/%x-%j.err \
-  --export=ALL,EVAL_SPLIT=test,EVAL_LIMIT=50,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_100step,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_test50_100step \
+  --export=ALL,EVAL_SPLIT=test,EVAL_LIMIT=50,TRAINED_MODEL=$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo_100step,EVAL_OUTPUT_DIR=$PQS_ROOT/evals/gsm8k_compare_test50_100step \
   slurm/eval_gsm8k_compare.sbatch
 ```
 
@@ -96,7 +96,7 @@ sbatch --job-name=pqs-eval-leak300-test50 \
   --time=01:00:00 \
   --output=logs/%x-%j.out \
   --error=logs/%x-%j.err \
-  --export=ALL,EVAL_SPLIT=test,EVAL_LIMIT=50,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_test50_leak300 \
+  --export=ALL,EVAL_SPLIT=test,EVAL_LIMIT=50,TRAINED_MODEL=$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=$PQS_ROOT/evals/gsm8k_compare_test50_leak300 \
   slurm/eval_gsm8k_compare.sbatch
 ```
 
@@ -116,7 +116,7 @@ sbatch --job-name=pqs-grpo-g8-dr100 \
   --time=00:45:00 \
   --output=logs/%x-%j.out \
   --error=logs/%x-%j.err \
-  --export=ALL,MAX_STEPS=100,DATASET_LIMIT=10,NUM_GENERATIONS=8,GRAD_ACCUM=8,TEMPERATURE=1.0,LOSS_TYPE=dr_grpo,SCALE_REWARDS=none,BETA=0.0,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_g8_dr100 \
+  --export=ALL,MAX_STEPS=100,DATASET_LIMIT=10,NUM_GENERATIONS=8,GRAD_ACCUM=8,TEMPERATURE=1.0,LOSS_TYPE=dr_grpo,SCALE_REWARDS=none,BETA=0.0,OUTPUT_DIR=$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_g8_dr100 \
   slurm/smoke_single_gpu.sbatch
 ```
 

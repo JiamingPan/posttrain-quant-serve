@@ -54,7 +54,7 @@ The main strategic risk is over-investing in the GRPO smoke loop. The project ne
    ```bash
       python - <<'PY'
    import pandas as pd
-   p="/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_leak300/paired_comparison.csv"
+   p="$PQS_ROOT/evals/gsm8k_compare_train10_leak300/paired_comparison.csv"
    df=pd.read_csv(p)
    print(df[df["change"]!="unchanged"].to_string(index=False))
    PY
@@ -76,7 +76,7 @@ The main strategic risk is over-investing in the GRPO smoke loop. The project ne
      --time=00:20:00 \
      --output=logs/%x-%j.out \
      --error=logs/%x-%j.err \
-     --export=ALL,MAX_STEPS=5,DATASET_LIMIT=10,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_format_fix_5step \
+     --export=ALL,MAX_STEPS=5,DATASET_LIMIT=10,OUTPUT_DIR=$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_format_fix_5step \
      slurm/smoke_single_gpu.sbatch
    ```
 

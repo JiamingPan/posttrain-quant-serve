@@ -46,12 +46,12 @@ Reason:
 
 Great Lakes environment notes:
 
-- Repo should live under `/scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve`,
+- Repo should live under `$PQS_ROOT/repos/posttrain-quant-serve`,
   not `$HOME`, because `$HOME` filled during package installs.
 - Environment path:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/envs/posttrain-quant-serve`.
+  `$PQS_ROOT/envs/posttrain-quant-serve`.
 - HF cache path:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/hf_cache`.
+  `$PQS_ROOT/hf_cache`.
 - Working package stack found during setup:
   `torch==2.8.0+cu128`, `torchao==0.14.1`, `kagglehub==1.0.0`,
   `kagglesdk==0.1.24`.
@@ -78,14 +78,14 @@ sbatch \
 - Shape-check result: job `50951560`, completed in `00:03:57`, exit code `0:0`.
 - GPU from shape-check log: NVIDIA A40, 44.4 GiB.
 - Shape-check checkpoint path:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo/checkpoint-5`.
+  `$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo/checkpoint-5`.
 
 - Resume check: job `50952454`, completed in `00:03:58`, exit code `0:0`; resumed from
   `checkpoint-5` and continued to step 10. Nonfatal warning observed:
   missing checkpoint key `lm_head.weight`.
 
 - Parser fix check: job `50952893`, completed in `00:03:48`, exit code `0:0`; output path:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_parser_fix`.
+  `$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo_parser_fix`.
 
 - 100-step smoke command:
 
@@ -100,14 +100,14 @@ sbatch \
   --time=00:40:00 \
   --output=logs/%x-%j.out \
   --error=logs/%x-%j.err \
-  --export=ALL,MAX_STEPS=100,DATASET_LIMIT=10,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_100step \
+  --export=ALL,MAX_STEPS=100,DATASET_LIMIT=10,OUTPUT_DIR=$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo_100step \
   slurm/smoke_single_gpu.sbatch
 ```
 
 - 100-step result: job `50954114`, completed in `00:18:46`, exit code `0:0`.
 - Training progress: reached `100/100`; logged runtime `971.4` seconds and `0.103` steps/second.
 - Checkpoint path:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_100step/checkpoint-100`.
+  `$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo_100step/checkpoint-100`.
 - Other saved checkpoint: `checkpoint-95`.
 - Peak GPU memory: not captured in the pasted log; add explicit memory logging before using this as
   a scaling estimate.
@@ -126,7 +126,7 @@ sbatch \
 Completion analysis for job `50954114`:
 
 - Notebook loaded `400` completion rows from:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/smoke_qwen2_5_0_5b_grpo_100step/completions`.
+  `$PQS_ROOT/ckpts/smoke_qwen2_5_0_5b_grpo_100step/completions`.
 - Columns found: `step`, `prompt`, `completion`, `gsm8k_exact_match_reward`, `advantage`,
   `source_file`.
 - Reward signal:
@@ -163,13 +163,13 @@ sbatch --job-name=pqs-grpo-leakfix \
   --time=00:20:00 \
   --output=logs/%x-%j.out \
   --error=logs/%x-%j.err \
-  --export=ALL,MAX_STEPS=5,DATASET_LIMIT=10,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_5step \
+  --export=ALL,MAX_STEPS=5,DATASET_LIMIT=10,OUTPUT_DIR=$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_leak_penalty_5step \
   slurm/smoke_single_gpu.sbatch
 ```
 
 - Job `51051394`, `pqs-grpo-leakfix`, completed in `00:08:42`, exit code `0:0`.
 - Checkpoint path:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_5step`.
+  `$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_leak_penalty_5step`.
 - Log tail showed sampled completions still rambling, which is expected for only 5 steps. This run
   verifies the modified reward path executes; it does not prove leakage has improved.
 
@@ -182,13 +182,13 @@ Base-vs-trained sanity evaluation:
 
 ```bash
 sbatch --account=cavestru0 --time=00:30:00 \
-  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_100step \
+  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,EVAL_OUTPUT_DIR=$PQS_ROOT/evals/gsm8k_compare_train10_100step \
   slurm/eval_gsm8k_compare.sbatch
 ```
 
 - Job `51062503`, `pqs-gsm8k-eval`, completed in `00:07:23`, exit code `0:0`.
 - Output path:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_100step`.
+  `$PQS_ROOT/evals/gsm8k_compare_train10_100step`.
 - Base `Qwen/Qwen2.5-0.5B-Instruct` on first 10 GSM8K train examples:
   - accuracy `0.6`
   - correct `6/10`
@@ -223,7 +223,7 @@ sbatch --job-name=pqs-grpo-leak300 \
   --time=01:00:00 \
   --output=logs/%x-%j.out \
   --error=logs/%x-%j.err \
-  --export=ALL,MAX_STEPS=300,DATASET_LIMIT=50,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k \
+  --export=ALL,MAX_STEPS=300,DATASET_LIMIT=50,OUTPUT_DIR=$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k \
   slurm/smoke_single_gpu.sbatch
 ```
 
@@ -241,13 +241,13 @@ sbatch --job-name=pqs-grpo-leak300-resume \
   --time=00:30:00 \
   --output=logs/%x-%j.out \
   --error=logs/%x-%j.err \
-  --export=ALL,MAX_STEPS=300,DATASET_LIMIT=50,OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,RESUME_FROM_CHECKPOINT=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k/checkpoint-290 \
+  --export=ALL,MAX_STEPS=300,DATASET_LIMIT=50,OUTPUT_DIR=$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,RESUME_FROM_CHECKPOINT=$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k/checkpoint-290 \
   slurm/smoke_single_gpu.sbatch
 ```
 
 - Job `51089453`, `pqs-grpo-leak300-resume`, completed in `00:06:53`, exit code `0:0`.
 - Final checkpoint exists:
-  `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k/checkpoint-300`.
+  `$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k/checkpoint-300`.
 - Step 300 log showed the leak penalty is active: a leaky wrong completion received reward `-0.25`.
 - The notebook now defaults to this 300-step run and compares it against the original 100-step run.
 
@@ -266,7 +266,7 @@ Day 2 closeout and Day 3 start.
 
 ```bash
 sbatch --account=cavestru0 --time=00:45:00 \
-  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,TRAINED_MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=/scratch/huterer_root/huterer0/jiamingp/pqs/evals/gsm8k_compare_train10_leak300 \
+  --export=ALL,EVAL_SPLIT=train,EVAL_LIMIT=10,TRAINED_MODEL=$PQS_ROOT/ckpts/qwen2_5_0_5b_grpo_leak_penalty_300step_50gsm8k,EVAL_OUTPUT_DIR=$PQS_ROOT/evals/gsm8k_compare_train10_leak300 \
   slurm/eval_gsm8k_compare.sbatch
 ```
 

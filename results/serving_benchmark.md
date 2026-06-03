@@ -4,8 +4,8 @@ This table is intentionally empty until the vLLM benchmark is run on a single A4
 with `slurm/serve_benchmark.sbatch`. The benchmark writes raw rows to:
 
 ```text
-/scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b/serving_benchmark.csv
-/scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b/serving_benchmark.jsonl
+$PQS_ROOT/results/serving/qwen2_5_1_5b/serving_benchmark.csv
+$PQS_ROOT/results/serving/qwen2_5_1_5b/serving_benchmark.jsonl
 ```
 
 ## Planned A40 Rows

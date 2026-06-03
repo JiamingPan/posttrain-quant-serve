@@ -7,7 +7,7 @@ Run these on the Slurm cluster. The repo, virtual environment, Hugging Face cach
 Great Lakes path used for this project:
 
 ```bash
-export PQS_ROOT=/scratch/huterer_root/huterer0/jiamingp/pqs
+export PQS_ROOT=$PQS_ROOT
 ```
 
 Create the environment:

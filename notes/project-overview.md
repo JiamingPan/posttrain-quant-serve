@@ -126,7 +126,7 @@ W4-base, and W4-GRPO
 Run from the scratch repo:
 
 ```bash
-cd /scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve
+cd $PQS_ROOT/repos/posttrain-quant-serve
 git pull
 ```
 
@@ -136,9 +136,9 @@ Use the existing scratch environment:
 module purge
 module load python/3.11.5
 module load cuda/12.8.1
-source /scratch/huterer_root/huterer0/jiamingp/pqs/envs/posttrain-quant-serve/bin/activate
+source $PQS_ROOT/envs/posttrain-quant-serve/bin/activate
 export PYTHONNOUSERSITE=1
-export HF_HOME=/scratch/huterer_root/huterer0/jiamingp/pqs/hf_cache
+export HF_HOME=$PQS_ROOT/hf_cache
 ```
 
 Then submit the shape check:
