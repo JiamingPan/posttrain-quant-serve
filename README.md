@@ -1,69 +1,246 @@
 # posttrain-quant-serve
 
-Study repo for RL post-training a small Qwen model with GRPO, serving it with vLLM, quantizing the trained checkpoint, and measuring whether RL post-training changes quantization behavior.
+RL post-training a small Qwen model with GRPO, quantizing the trained checkpoint to
+4-bit, and measuring **whether RL post-training changes how cleanly the model quantizes.**
+Single-GPU, end to end: GRPO -> quantize (bnb-NF4 and AWQ W4G128) -> eval -> serve.
 
 ## Research question
 
-Does RL post-training change how cleanly a model quantizes?
+**Does RL post-training change how cleanly a model quantizes?**
 
-Concretely, this repo will compare:
+Concretely, it compares four variants on held-out GSM8K, at FP16 and at 4-bit:
 
-- Base model
+- Base model (`Qwen2.5-1.5B-Instruct`)
 - GRPO-trained model
-- Quantized base model
-- Quantized GRPO-trained model
+- Each, quantized to W4 (bitsandbytes NF4 *and* AWQ W4G128)
 
-Metrics will include perplexity or small eval accuracy, latency, throughput, memory use, and weight/outlier diagnostics.
+and asks whether the GRPO accuracy gain measured at FP16 **survives** quantization,
+plus whether GRPO changed the model's weight-level quantizability (outlier structure,
+W4 reconstruction error).
 
-## Scope
+## Headline result
 
-Target model:
+On `Qwen2.5-1.5B-Instruct`, chat-formatted GSM8K, held-out `test100`:
 
-- Day 0 smoke: Qwen2.5-0.5B-Instruct on GSM8K
-- Scale target: Qwen3-1.7B or similar small reasoning model
-- Stretch: larger multi-GPU GRPO only after the smoke path is stable
+| Variant | FP16 | bnb-NF4 W4 | AWQ W4G128 |
+| --- | ---: | ---: | ---: |
+| Base | 0.68 | 0.65 | 0.58 |
+| GRPO (data1000) | 0.72 | 0.68 | 0.67 |
+| **Δ (GRPO − base)** | **+0.04** | **+0.03** | **+0.09** |
 
-Core stack:
+- `gain_survival_w4 = Δw4 − Δfp16 = −0.01` (the FP16 gain survives bnb-NF4 W4 intact)
+- `gain_survival_awq = Δawq − Δfp16 = +0.05` (gain survives AWQ; AWQ appears *more*
+  favorable to the GRPO checkpoint on this slice — flagged as a candidate, see caveats)
+
+**Conclusion:** there is no evidence that this GRPO recipe makes the model harder to
+quantize. The held-out FP16 gain survives both 4-bit schemes. This is corroborated by
+the weight diagnostics: base vs GRPO have near-identical global outlier fraction and W4
+reconstruction error, so the behavioral RL shift did not coincide with a global
+quantizability change.
+
+### Caveats (stated up front, on purpose)
+
+- `n = 100`, so 1-sigma binomial stderr ≈ ±0.047. The FP16 gain (+0.04) is small
+  relative to that; treat it as a clean-but-modest effect, not a large one.
+- The "AWQ favors GRPO" gap (base 0.58 vs GRPO 0.67) is ~1.3σ — *suggestive, not
+  significant*. Reported as a result candidate; larger-n confirmation is future work.
+- Base `Qwen2.5-1.5B-Instruct` is already strong on GSM8K (0.68), so headroom for an RL
+  gain is inherently limited; a harder benchmark (MATH) is the natural next step for a
+  larger effect.
+
+## What this repo establishes (and a measurement bug it caught)
+
+The result above is only trustworthy because the eval was first debugged. An earlier
+matrix showed wildly different numbers because the eval fed **raw-text prompts to a chat
+model**, so generations never emitted the `<|im_end|>` stop token and were truncated
+before reaching the answer line (`hit_max_new_tokens_rate = 1.0` on every row). Fixing
+this — standardizing train *and* eval on the Qwen chat template, stopping on `<|im_end|>`,
+and giving the model room to finish (`max_new_tokens=512`) — is what made the deltas
+measurable. The final matrix is clean: parse rate 1.0, prompt-leak 0.0, ~0 max-token
+hits, EOS ≈ 1.0. See `notes/day4.md` and `notes/day5.md` for the full diagnosis.
+
+This study also documents a **quantization-floor finding** at 0.5B: both bnb-NF4 and AWQ
+erased the gain there, but base sat at the accuracy floor regardless of training, so the
+0.5B result is a confounded diagnostic, not an answer — which is why the headline result
+is reported on 1.5B. See `notes/day4.md`.
+
+## Scope (what this is, and isn't)
+
+- **Single-GPU** (one A40). `Qwen2.5-1.5B-Instruct` fits on one GPU (~3 GB), so no model
+  sharding is needed.
+- **FSDP / multi-GPU is deliberately out of scope** — it solves a memory problem this
+  model doesn't have at this scale. It's the path for ≥7B models; noted as future work,
+  not faked here.
+- GRPO recipe (`g8_dr100`): `num_generations=8`, `loss_type=dr_grpo`,
+  `scale_rewards=none`, `beta=0.0`, `temperature=1.0`, trained on 1000 GSM8K prompts
+  for ~2 epochs (250 steps). The Dr. GRPO objective and reward-std removal were adopted
+  to fix an advantage-collapse failure mode diagnosed earlier (see `notes/day3.md`).
+- Reward is **verifiable** (GSM8K answer-checker, no learned reward model) → this is RLVR.
+
+## Stack
 
 - TRL `GRPOTrainer` for RL post-training
-- GSM8K answer checker for verifiable rewards
-- PyTorch FSDP / Accelerate for later distributed scaling
-- vLLM for serving and throughput/latency benchmarking
-- AWQ or local quantization diagnostics for the quantization study
-- Slurm for Michigan GPU cluster runs
+- GSM8K answer-checker for verifiable rewards (`scripts/gsm8k_reward.py`)
+- bitsandbytes NF4 (load-time W4) and AutoAWQ W4G128 (calibration-aware W4)
+- vLLM OpenAI-compatible serving and offline latency/throughput benchmarking
+- Slurm on the Michigan Great Lakes cluster (single A40)
 
-## Milestones
+## Reproduce
 
-- [ ] Run a tiny single-GPU GRPO smoke test on 10 GSM8K problems
-- [ ] Confirm reward, KL, and completion-length logs are produced
-- [ ] Save and reload a GRPO checkpoint cleanly
-- [ ] Run a short scaled GRPO job and record memory, reward, KL, and wall-clock
-- [ ] Serve base and GRPO-trained checkpoints with vLLM
-- [ ] Quantize base and GRPO-trained checkpoints
-- [ ] Compare FP16-base vs FP16-GRPO vs W4-base vs W4-GRPO
-- [ ] Publish results table, plots, and reproducibility notes
+GRPO training, held-out eval, AWQ quantization, and the full 6-row matrix are all driven
+by `slurm/*.sbatch` wrappers with env-var overrides. Exact commands, job IDs, and elapsed
+times for every step of the final run are recorded in `notes/day5.md`. Key scripts:
+
+```text
+scripts/train_grpo_gsm8k.py     GRPO training (chat-formatted prompts)
+scripts/gsm8k_reward.py         verifiable reward + answer extraction
+scripts/quantize_awq.py         AWQ W4G128 quantization
+scripts/eval_gsm8k_compare.py   FP16 / bnb-W4 / AWQ eval matrix
+scripts/weight_outlier_diagnostics.py   per-layer outlier / W4 reconstruction stats
+scripts/serve.py                vLLM OpenAI-compatible server / offline smoke
+scripts/benchmark.py            vLLM offline throughput, latency, and memory benchmark
+```
+
+## Serving & benchmarking
+
+Quantization is useful only if it improves the cost or speed of inference. The science
+result above answers the accuracy side: the GRPO gain survives W4. The serving path adds
+the engineering payoff side: run the dense and AWQ checkpoints through vLLM on one A40 and
+measure throughput, request latency, and peak GPU memory. vLLM is an inference engine with
+an OpenAI-compatible API server and efficient KV-cache scheduling; here it is used only as
+a single-GPU measurement tool, not as a distributed serving stack.
+
+Install serving extras on Great Lakes if the Slurm wrapper has not already done it:
+
+```bash
+cd /scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve
+source scripts/activate_great_lakes.sh
+python -m pip install -r requirements-serving.txt
+```
+
+Serve the FP16 base model:
+
+```bash
+python scripts/serve.py \
+  --mode server \
+  --model Qwen/Qwen2.5-1.5B-Instruct \
+  --quantization none \
+  --dtype float16 \
+  --port 8000
+```
+
+Serve the GRPO AWQ W4G128 checkpoint:
+
+```bash
+python scripts/serve.py \
+  --mode server \
+  --model /scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
+  --quantization awq \
+  --dtype float16 \
+  --port 8000
+```
+
+Smoke the OpenAI-compatible endpoint:
+
+```bash
+curl http://127.0.0.1:8000/v1/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "Solve the math problem. Show the reasoning briefly. Problem: Janet has 3 bags with 4 marbles each. How many marbles does she have? End with #### <answer>.",
+    "max_tokens": 128,
+    "temperature": 0
+  }'
+```
+
+When serving a local checkpoint path, set the JSON `model` field to that same path.
+
+Run the serving benchmark on one A40. These jobs do **not** retrain or reevaluate the
+accuracy matrix; they only measure vLLM offline generation speed and memory.
+
+```bash
+SERVE_OUT=/scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b
+
+MODEL=Qwen/Qwen2.5-1.5B-Instruct \
+LABEL=base_fp16 \
+QUANTIZATION=none \
+OUTPUT_DIR=$SERVE_OUT \
+sbatch --job-name=pqs-serve-base-fp16 \
+  --account=huterer2 \
+  --time=00:45:00 \
+  --export=ALL \
+  slurm/serve_benchmark.sbatch
+
+MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
+LABEL=grpo_fp16 \
+QUANTIZATION=none \
+OUTPUT_DIR=$SERVE_OUT \
+sbatch --job-name=pqs-serve-grpo-fp16 \
+  --account=huterer2 \
+  --time=00:45:00 \
+  --export=ALL \
+  slurm/serve_benchmark.sbatch
+
+MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib \
+LABEL=base_awq \
+QUANTIZATION=awq \
+OUTPUT_DIR=$SERVE_OUT \
+sbatch --job-name=pqs-serve-base-awq \
+  --account=huterer2 \
+  --time=00:45:00 \
+  --export=ALL \
+  slurm/serve_benchmark.sbatch
+
+MODEL=/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
+LABEL=grpo_awq \
+QUANTIZATION=awq \
+OUTPUT_DIR=$SERVE_OUT \
+sbatch --job-name=pqs-serve-grpo-awq \
+  --account=huterer2 \
+  --time=00:45:00 \
+  --export=ALL \
+  slurm/serve_benchmark.sbatch
+```
+
+Raw benchmark rows land in:
+
+```text
+/scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b/serving_benchmark.csv
+/scratch/huterer_root/huterer0/jiamingp/pqs/results/serving/qwen2_5_1_5b/serving_benchmark.jsonl
+```
+
+The public table stub is `results/serving_benchmark.md`:
+
+| Variant | Quantization | Throughput tok/s | Latency p50 s | Latency p95 s | Peak mem GB |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Base FP16 | none | TBD | TBD | TBD | TBD |
+| GRPO FP16 | none | TBD | TBD | TBD | TBD |
+| Base AWQ W4G128 | awq | TBD | TBD | TBD | TBD |
+| GRPO AWQ W4G128 | awq | TBD | TBD | TBD | TBD |
 
 ## Layout
 
 ```text
-configs/      Training, serving, and quantization configs
-notes/        Study log, reading notes, and understanding checks
-scripts/      Runnable training, serving, benchmark, and analysis scripts
-slurm/        sbatch templates for cluster runs
-src/          Reusable project code
-results/      Curated result tables and plots
+configs/   Training, serving, and quantization configs
+notes/     Study log (day0–day5), reading notes, diagnoses
+scripts/   Training, quantization, eval, and diagnostic scripts
+slurm/     sbatch templates for cluster runs
+results/   Curated result tables and plots
 ```
 
-Large local artifacts such as datasets, checkpoints, raw logs, and model outputs are ignored by git.
+Large local artifacts (datasets, checkpoints, raw logs) are git-ignored.
 
-## Day 0 Target
+## Study log
 
-Do not touch larger models yet. First prove the smallest GRPO path works:
+The `notes/` directory is a dated log of the actual investigation, kept readable for
+interview prep: `day3.md` (advantage-collapse diagnosis + fix), `day4.md` (quantization
+pipeline, 0.5B floor, stopping bug), `day5.md` (final data1000 matrix and interpretation),
+plus `grpo-literature.md` (annotated reading list: DeepSeekMath, Dr. GRPO, DAPO, GSPO,
+RLVR, quantization×RL).
 
-1. Create and verify the cluster Python/CUDA environment.
-2. Download the smoke-test model and GSM8K data.
-3. Read enough GRPO to understand rollouts, rewards, advantages, and KL.
-4. Run a tiny single-GPU Qwen2.5-0.5B-Instruct GRPO run for 5 then 100 steps.
-5. Confirm the run saves a checkpoint and can reload it.
+## Future work
 
-Start with `notes/project-overview.md` for the plain-English explanation of the project and learning path.
+- Larger-n eval (test200+) to tighten the AWQ-survival estimate.
+- MATH or another harder benchmark, where base headroom is larger.
+- Fill `results/serving_benchmark.md` after running the four A40 vLLM benchmark jobs.
+- FSDP multi-GPU scaling to a ≥7B model, where sharding is actually required.

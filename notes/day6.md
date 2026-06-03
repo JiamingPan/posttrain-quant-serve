@@ -104,6 +104,26 @@ FP16/bnb-W4/AWQ matrix. vLLM serving metrics are useful for the broader
 research claim. Treat vLLM as a packaging/stretch task, not as a blocker for the
 Day 5 result.
 
+## Serving Add-On Plan
+
+The remaining repo gap is engineering, not science: `scripts/serve.py` and
+`scripts/benchmark.py` should make the "serve" part of `posttrain-quant-serve`
+runnable. The intended scope is single A40, single GPU, no FSDP, no new training,
+no new quantization, and no accuracy reruns.
+
+What this add-on measures:
+
+- vLLM OpenAI-compatible serving for dense FP16 and AWQ W4G128 checkpoints;
+- offline vLLM throughput in generated tokens per second;
+- per-request end-to-end latency p50/p95;
+- peak GPU memory;
+- one CSV/JSONL row per checkpoint so the four variants can be assembled into a
+  small serving table.
+
+The honest framing is: the Day 5 matrix answers whether GRPO's accuracy gain
+survives W4; the serving benchmark checks the systems payoff of W4 on the same
+checkpoint family.
+
 ## Interview Talking Point
 
 If asked "how can accuracy improve if global weight metrics barely move?", the
