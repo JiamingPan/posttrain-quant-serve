@@ -94,3 +94,24 @@ Optional future cleanup:
 - run direct weight diagnostics on
   `/scratch/huterer_root/huterer0/jiamingp/pqs/ckpts/qwen2_5_1_5b_grpo_data1000_chat`
   if the final writeup needs an exact data1000 weight-space claim.
+
+## Project Scope Decision
+
+The GRPO-to-quantization research question is done: we have the trained 1.5B
+checkpoint, the clean held-out FP16 eval, the AWQ checkpoints, and the six-row
+FP16/bnb-W4/AWQ matrix. vLLM serving metrics are useful for the broader
+`posttrain-quant-serve` portfolio story, but they are not required to support the
+research claim. Treat vLLM as a packaging/stretch task, not as a blocker for the
+Day 5 result.
+
+## Interview Talking Point
+
+If asked "how can accuracy improve if global weight metrics barely move?", the
+answer is: global metrics like mean scale, outlier fraction, and W4 proxy MSE are
+coarse distribution summaries. They can detect whether GRPO made weights much
+larger, spikier, or harder to approximate with int4, but they do not measure the
+direction of the update or the function computed by the network. GRPO can make
+many small coordinated weight changes that shift logits toward the correct final
+answer while leaving global histograms almost unchanged. The result is therefore
+not contradictory: behavior changed, but no coarse quantization-pathology metric
+blew up.

@@ -43,3 +43,13 @@ Next:
 - Run base-vs-trained evaluation to measure whether `checkpoint-100` is better than the base model.
 - Reduce prompt leakage before increasing dataset size or steps.
 - Do not scale model size until the reward/completion behavior is understood.
+
+## Interview Talking Point
+
+If asked "what did you verify before trusting RL training?", the answer is: I
+verified that the GRPO loop was mechanically alive before optimizing for accuracy.
+The 100-step checkpoint resumed correctly, generated completion artifacts, and had
+a nonzero exact-match reward signal with parsed answers. That matters because RL
+post-training can silently fail: a job can run and save checkpoints while the
+reward parser, prompt format, or resume path is broken. Day 1 made the training
+loop observable enough to debug.

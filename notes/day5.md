@@ -265,3 +265,13 @@ candidate rather than a universal claim.
 Pair this with the weight diagnostics from Day 4: base-vs-GRPO global weight
 outlier and W4 reconstruction metrics were nearly identical, so the behavioral
 GRPO shift did not coincide with an obvious global quantizability degradation.
+
+## Interview Talking Point
+
+If asked "what did the final quantization result show?", the answer is: after
+fixing the chat-template and stopping bugs, data1000 GRPO gave a small held-out
+GSM8K gain on Qwen2.5-1.5B-Instruct (`0.68 -> 0.72`). That gain mostly survived
+both tested W4 paths: bnb-NF4 preserved almost all of it (`+0.03` vs `+0.04` in
+FP16), and AWQ was even more favorable to the GRPO checkpoint on this test100
+slice (`+0.09`). I would not overclaim from 100 examples, but the clean takeaway
+is that this GRPO recipe did not make the model obviously harder to quantize.

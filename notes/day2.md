@@ -52,3 +52,12 @@ model and should not be scaled.
 
 Next day: diagnose the four worsened examples, tighten generation/stop behavior, and run only a
 small format-fix smoke before any longer training.
+
+## Interview Talking Point
+
+If asked "how did you handle a negative result?", the answer is: I did not hide it
+or scale through it. The leak-penalty run improved one surface symptom in logged
+rollouts but made held-out behavior worse, so I treated it as evidence against
+the recipe. The key engineering lesson was that reward shaping can change the
+training distribution without improving the evaluated task. That is why I moved
+from "more steps" to paired-example inspection and objective-level diagnosis.

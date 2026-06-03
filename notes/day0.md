@@ -18,3 +18,13 @@ Goal: run the smallest GRPO smoke test. Do not touch larger models yet.
 ## Stop Condition
 
 Day 0 is done when the GRPO smoke run has a checkpoint that can be reloaded. If setup breaks before that, record the exact failure and make that the next fix.
+
+## Interview Talking Point
+
+If asked "how did you make the project reproducible on a cluster?", the answer is:
+I started with the smallest possible single-GPU GRPO smoke test before touching
+model scale or quantization. The Day 0 deliverable was not accuracy; it was a
+reloadable checkpoint, a verified CUDA/PyTorch/TRL environment, and exact Slurm
+commands. That gave the project a controlled baseline: if later GRPO, AWQ, or eval
+jobs failed, I could separate research issues from environment or checkpointing
+issues.

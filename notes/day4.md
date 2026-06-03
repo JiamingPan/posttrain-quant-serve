@@ -336,3 +336,14 @@ Finished:
 
 The active work now moves to Day 5: finish the data1000 GRPO run, run held-out
 FP16 eval, then run AWQ/bnb-W4 quantization comparison and write the honest result.
+
+## Interview Talking Point
+
+If asked "what was the most important eval bug?", the answer is: the model was a
+Qwen chat model, but the old eval used raw text prompts. That meant generations
+did not emit the expected chat stop token, every row hit the token cap, and
+accuracy differences were partly measuring truncation behavior instead of model
+quality. I fixed it by standardizing train prompts, eval prompts, and AWQ
+calibration text on the same chat template, then added stop-rate metrics
+(`hit_max_new_tokens_rate`, `ended_with_eos_rate`, `prompt_leak_rate`) so this
+failure mode would be visible in every future matrix.
