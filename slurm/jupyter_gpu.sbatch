@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 # Start a Jupyter notebook server on a Great Lakes GPU node.
 #
-# Submit from the repo root:
-#   sbatch --account=cavestru0 --time=06:00:00 slurm/jupyter_gpu.sbatch
+# Submit from anywhere:
+#   sbatch --account=huterer2 --time=06:00:00 /scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve/slurm/jupyter_gpu.sbatch
 #
 # Then read jupyter_info_gpu.txt for the SSH tunnel command.
 
 #SBATCH --job-name=pqs-jupyter
-#SBATCH --account=huterer0
+#SBATCH --account=huterer2
 #SBATCH --partition=spgpu
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH --time=06:00:00
-#SBATCH --output=logs/%x-%j.out
-#SBATCH --error=logs/%x-%j.err
+#SBATCH --chdir=/scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve
+#SBATCH --output=/scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve/logs/%x-%j.out
+#SBATCH --error=/scratch/huterer_root/huterer0/jiamingp/pqs/repos/posttrain-quant-serve/logs/%x-%j.err
 
 set -euo pipefail
 
-cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs notebooks
 
 source scripts/activate_great_lakes.sh
@@ -39,8 +39,8 @@ EOT
   exit 1
 fi
 
-NOTEBOOK_DIR="$SLURM_SUBMIT_DIR/notebooks"
-INFO_FILE="$SLURM_SUBMIT_DIR/jupyter_info_gpu.txt"
+NOTEBOOK_DIR="${NOTEBOOK_DIR:-$PWD/notebooks}"
+INFO_FILE="${INFO_FILE:-$PWD/jupyter_info_gpu.txt}"
 
 nport="$(shuf -i 8000-9000 -n 1)"
 ip="$(hostname -i)"
