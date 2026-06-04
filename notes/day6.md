@@ -124,7 +124,48 @@ The honest framing is: the Day 5 matrix answers whether GRPO's accuracy gain
 survives W4; the serving benchmark checks the systems payoff of W4 on the same
 checkpoint family.
 
-## Interview Talking Point
+## Serving vs Benchmarking
+
+There are two separate vLLM artifacts because they answer different questions.
+
+`scripts/serve.py` is the serving artifact. In server mode it starts vLLM's
+OpenAI-compatible API server for a chosen checkpoint. That is the production-like
+path: a process stays alive, owns the GPU, listens on a port, and accepts requests
+through endpoints such as `/v1/completions`. This proves the repo can actually
+serve the dense FP16 and AWQ checkpoints in a standard API shape, rather than
+only evaluating them inside a research script. It is the right artifact to show
+if someone asks, "Can this checkpoint be deployed behind an inference endpoint?"
+
+`scripts/benchmark.py` is the measurement artifact. It uses vLLM offline mode
+inside one Python process instead of coordinating a separate HTTP server. This is
+intentional: for a batch Slurm job, offline mode removes port allocation, server
+startup synchronization, client retry logic, and HTTP overhead from the critical
+path. The benchmark still uses vLLM's model loading, KV cache, scheduler, and
+generation kernels, so it measures the inference engine rather than the old
+Transformers eval loop. It reports the serving-relevant quantities: generated
+tokens per second, p50/p95 request latency, and peak GPU memory.
+
+In an interview, the clean explanation is: I implemented both the deployability
+path and the reproducible measurement path. `serve.py` shows the model can run
+as an OpenAI-compatible vLLM service. `benchmark.py` gives stable one-row
+measurements for FP16 vs AWQ without needing a long-lived server in every Slurm
+job. The former answers "can we serve it?"; the latter answers "what is the
+throughput, latency, and memory cost?"
+
+What counts as done for the vLLM part:
+
+- `serve.py` can launch a real vLLM server for FP16 and AWQ checkpoints;
+- `benchmark.py` can run vLLM offline and write CSV/JSONL rows;
+- `slurm/serve_benchmark.sbatch` runs one benchmark row on a single A40;
+- the README shows copy-paste commands for server mode and benchmark mode;
+- `results/serving_benchmark.md` can be filled from the four benchmark rows:
+  base FP16, GRPO FP16, base AWQ, and GRPO AWQ.
+
+The benchmark does not need to keep a server running forever. A persistent server
+is useful for interactive demos and API integration, but the project result only
+needs a reproducible serving measurement table.
+
+## Interview Talking Points
 
 If asked "how can accuracy improve if global weight metrics barely move?", the
 answer is: global metrics like mean scale, outlier fraction, and W4 proxy MSE are
@@ -135,3 +176,11 @@ many small coordinated weight changes that shift logits toward the correct final
 answer while leaving global histograms almost unchanged. The result is therefore
 not contradictory: behavior changed, but no coarse quantization-pathology metric
 blew up.
+
+If asked "why use both server mode and offline benchmark mode?", the answer is:
+server mode demonstrates deployability, while offline benchmark mode gives a
+controlled systems measurement. The API server is what a user or application
+would call. The offline benchmark is easier to reproduce on Slurm because one job
+can load the model, generate realistic GSM8K prompts, measure tokens/sec,
+latency, and memory, and exit cleanly. Both use vLLM; they just remove different
+sources of complexity.
