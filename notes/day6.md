@@ -104,6 +104,41 @@ FP16/bnb-W4/AWQ matrix. vLLM serving metrics are useful for the broader
 research claim. Treat vLLM as a packaging/stretch task, not as a blocker for the
 Day 5 result.
 
+## Data Counts and Epochs
+
+Keep these counts separate. They answer different questions:
+
+- training used `DATASET_LIMIT=1000` GSM8K train prompts;
+- held-out accuracy used `EVAL_SPLIT=test` and `EVAL_LIMIT=100`;
+- serving benchmark uses `NUM_PROMPTS=16` GSM8K-style prompts for speed and
+  memory only;
+- serving benchmark uses `MAX_NEW_TOKENS=128` as the generation-length cap, not
+  as a data-count setting.
+
+The `100` in the accuracy result does not mean the GRPO model was trained on
+100 prompts. It means the held-out test evaluation was limited to 100 examples
+for a controlled, cheap comparison. GSM8K has more test examples, but the active
+matrix is the test100 slice because every row uses the same slice and the same
+clean stopping setup.
+
+The final GRPO checkpoint is:
+
+```text
+$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat
+```
+
+It used the 1.5B Qwen2.5-Instruct base model, GRPO post-training, 1000 GSM8K
+train prompts, `MAX_STEPS=250`, batch size 1, and gradient accumulation 8. That
+means one optimizer step effectively uses 8 prompts. Across 250 steps, the run
+sees about `250 * 8 = 2000` prompt exposures. With a 1000-prompt training slice,
+that is roughly 2 epochs.
+
+"2 epochs over 1000 prompts" means the optimizer got about two passes worth of
+training signal over that 1000-prompt slice. It does not mean the model memorized
+only 100 prompts, and it does not mean every prompt appeared exactly twice in a
+simple fixed order. It is the practical exposure count: about 2000 training
+prompt uses divided by 1000 unique training prompts.
+
 ## Serving Add-On Plan
 
 The remaining repo gap is engineering, not science: `scripts/serve.py` and
@@ -184,3 +219,10 @@ would call. The offline benchmark is easier to reproduce on Slurm because one jo
 can load the model, generate realistic GSM8K prompts, measure tokens/sec,
 latency, and memory, and exit cleanly. Both use vLLM; they just remove different
 sources of complexity.
+
+If asked "what does 2 epochs over 1000 prompts mean?", the answer is: with batch
+size 1 and gradient accumulation 8, each optimizer update collects gradients from
+8 prompts. A 250-step GRPO run therefore uses about 2000 prompt exposures. Since
+the training subset contains 1000 prompts, that is about two passes over the
+training slice. The held-out test100 result is separate: those 100 examples were
+used only for evaluation, not for training.
