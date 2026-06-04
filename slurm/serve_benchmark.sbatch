@@ -7,6 +7,9 @@
 #   QUANTIZATION=none \
 #   OUTPUT_DIR=$PQS_ROOT/results/serving/qwen2_5_1_5b \
 #   sbatch --account=huterer2 --time=00:45:00 --export=ALL slurm/serve_benchmark.sbatch
+#
+# If vLLM is not installed, install it once first with:
+#   INSTALL_SERVING_DEPS=1 NUM_PROMPTS=1 MAX_NEW_TOKENS=1 ...
 
 #SBATCH --job-name=pqs-serve-bench
 #SBATCH --account=huterer2
@@ -28,8 +31,28 @@ source scripts/activate_great_lakes.sh
 python scripts/cluster_check.py
 
 if ! python -c "import vllm" >/dev/null 2>&1; then
+  if [[ "${INSTALL_SERVING_DEPS:-0}" != "1" ]]; then
+    cat >&2 <<'EOT'
+vLLM is not importable in the active environment.
+
+Install serving dependencies once, not from several benchmark jobs at the same time:
+
+  INSTALL_SERVING_DEPS=1 NUM_PROMPTS=1 MAX_NEW_TOKENS=1 \
+  sbatch --job-name=pqs-serve-install --account=huterer2 --time=00:45:00 --export=ALL slurm/serve_benchmark.sbatch
+
+This wrapper redirects pip/Cargo/Rust temp/cache directories under PQS_ROOT.
+EOT
+    exit 2
+  fi
+
   echo "vLLM is not importable; installing requirements-serving.txt into the active env."
-  python -m pip install -r requirements-serving.txt
+  lock_file="$PQS_ROOT/serving_deps_install.lock"
+  (
+    flock 9
+    if ! python -c "import vllm" >/dev/null 2>&1; then
+      python -m pip install -r requirements-serving.txt
+    fi
+  ) 9>"$lock_file"
 fi
 
 MODEL="${MODEL:-Qwen/Qwen2.5-1.5B-Instruct}"
