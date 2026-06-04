@@ -19,7 +19,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import statistics
+import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, Sequence
@@ -120,6 +123,89 @@ def count_generated_tokens(output: Any) -> int:
     return len(token_ids)
 
 
+def _visible_gpu_id() -> str | None:
+    """Return the first Slurm-visible GPU id for nvidia-smi, if available."""
+    for env_name in ("CUDA_VISIBLE_DEVICES", "SLURM_JOB_GPUS"):
+        value = os.environ.get(env_name)
+        if not value:
+            continue
+        first = value.split(",")[0].strip()
+        if first and first.lower() not in {"none", "nodevfiles"}:
+            return first
+    return None
+
+
+def _query_gpu_used_gb(gpu_id: str | None) -> float | None:
+    cmd_base = [
+        "nvidia-smi",
+        "--query-gpu=memory.used",
+        "--format=csv,noheader,nounits",
+    ]
+    cmds = [cmd_base]
+    if gpu_id:
+        cmds.insert(0, ["nvidia-smi", "--id", gpu_id, *cmd_base[1:]])
+
+    completed = None
+    for cmd in cmds:
+        try:
+            completed = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            break
+        except FileNotFoundError:
+            return None
+        except subprocess.CalledProcessError:
+            continue
+    if completed is None:
+        return None
+
+    values = []
+    for line in completed.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            values.append(float(line.split()[0]) / 1024.0)
+        except ValueError:
+            continue
+    if not values:
+        return None
+    return max(values)
+
+
+class GpuMemorySampler:
+    """Poll nvidia-smi so vLLM worker/custom-allocator memory is visible."""
+
+    def __init__(self, interval_s: float = 0.5) -> None:
+        self.interval_s = interval_s
+        self.gpu_id = _visible_gpu_id()
+        self.baseline_gb: float | None = None
+        self.peak_gb: float | None = None
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self.baseline_gb = _query_gpu_used_gb(self.gpu_id)
+        self.peak_gb = self.baseline_gb
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval_s):
+            current = _query_gpu_used_gb(self.gpu_id)
+            if current is None:
+                continue
+            if self.peak_gb is None or current > self.peak_gb:
+                self.peak_gb = current
+
+    def stop(self) -> tuple[float | None, float | None]:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=self.interval_s * 2)
+        current = _query_gpu_used_gb(self.gpu_id)
+        if current is not None and (self.peak_gb is None or current > self.peak_gb):
+            self.peak_gb = current
+        return self.baseline_gb, self.peak_gb
+
+
 def write_result(output_dir: Path, row: dict[str, Any]) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = output_dir / "serving_benchmark.jsonl"
@@ -155,6 +241,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
+
+    memory_sampler = GpuMemorySampler()
+    memory_sampler.start()
 
     llm = LLM(
         model=args.model,
@@ -192,6 +281,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     if torch.cuda.is_available():
         peak_mem_gb = torch.cuda.max_memory_allocated() / 1e9
         peak_reserved_gb = torch.cuda.max_memory_reserved() / 1e9
+    gpu_mem_baseline_gb, peak_gpu_used_gb = memory_sampler.stop()
+    if peak_gpu_used_gb is not None and (peak_mem_gb is None or peak_mem_gb == 0.0):
+        peak_mem_gb = peak_gpu_used_gb
+        print(
+            "Using nvidia-smi peak device memory for peak_mem_gb "
+            f"(baseline_gb={gpu_mem_baseline_gb}, peak_gb={peak_gpu_used_gb}).",
+            flush=True,
+        )
 
     row = {
         "label": args.label or Path(args.model).name,
