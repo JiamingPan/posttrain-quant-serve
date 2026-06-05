@@ -193,12 +193,35 @@ What counts as done for the vLLM part:
 - `benchmark.py` can run vLLM offline and write CSV/JSONL rows;
 - `slurm/serve_benchmark.sbatch` runs one benchmark row on a single A40;
 - the README shows copy-paste commands for server mode and benchmark mode;
-- `results/serving_benchmark.md` can be filled from the four benchmark rows:
+- `results/serving_benchmark.md` is filled from the four benchmark rows:
   base FP16, GRPO FP16, base AWQ, and GRPO AWQ.
 
 The benchmark does not need to keep a server running forever. A persistent server
 is useful for interactive demos and API integration, but the project result only
 needs a reproducible serving measurement table.
+
+## Serving Benchmark Result
+
+The completed A40 vLLM offline benchmark used 16 GSM8K test prompts and
+`max_new_tokens=128`.
+
+| Variant | Quantization | Throughput tok/s | p50 latency s | p95 latency s | Peak device mem GB |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Base FP16 | none | 138.6 | 0.879 | 1.045 | 40.31 |
+| GRPO FP16 | none | 139.0 | 0.879 | 1.060 | 40.31 |
+| Base AWQ W4G128 | awq | 64.4 | 1.956 | 2.025 | 40.36 |
+| GRPO AWQ W4G128 | awq | 64.1 | 1.957 | 2.131 | 40.36 |
+
+The honest read is that AWQ did not produce a speedup in this specific
+small-model serving run. It was about half the FP16 throughput. That does not
+change the main accuracy result; it only says the systems payoff is not automatic
+for Qwen2.5-1.5B on one A40 with this vLLM/AWQ path.
+
+The memory column is also not a clean weight-footprint comparison. The benchmark
+sampled device memory with `nvidia-smi`, and vLLM was configured with
+`gpu_memory_utilization=0.90`. vLLM therefore reserves most of the A40 for
+KV-cache capacity in every row. A separate capacity sweep would be needed to
+claim that AWQ supports more concurrent requests or a lower memory floor.
 
 ## Interview Talking Points
 

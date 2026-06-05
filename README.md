@@ -110,12 +110,21 @@ measure throughput, request latency, and peak GPU memory. vLLM is an inference e
 an OpenAI-compatible API server and efficient KV-cache scheduling; here it is used only as
 a single-GPU measurement tool, not as a distributed serving stack.
 
-Install serving extras on Great Lakes if the Slurm wrapper has not already done it:
+Install serving extras once on Great Lakes if vLLM is not already importable. Do
+not let several benchmark jobs install at the same time:
 
 ```bash
 cd $PQS_ROOT/repos/posttrain-quant-serve
 source scripts/activate_great_lakes.sh
-python -m pip install -r requirements-serving.txt
+
+INSTALL_SERVING_DEPS=1 \
+NUM_PROMPTS=1 \
+MAX_NEW_TOKENS=16 \
+sbatch --job-name=pqs-serve-install \
+  --account=huterer2 \
+  --time=00:45:00 \
+  --export=ALL \
+  slurm/serve_benchmark.sbatch
 ```
 
 Serve the FP16 base model:
@@ -165,9 +174,11 @@ MODEL=Qwen/Qwen2.5-1.5B-Instruct \
 LABEL=base_fp16 \
 QUANTIZATION=none \
 OUTPUT_DIR=$SERVE_OUT \
+NUM_PROMPTS=16 \
+MAX_NEW_TOKENS=128 \
 sbatch --job-name=pqs-serve-base-fp16 \
   --account=huterer2 \
-  --time=00:45:00 \
+  --time=00:20:00 \
   --export=ALL \
   slurm/serve_benchmark.sbatch
 
@@ -175,9 +186,11 @@ MODEL=$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
 LABEL=grpo_fp16 \
 QUANTIZATION=none \
 OUTPUT_DIR=$SERVE_OUT \
+NUM_PROMPTS=16 \
+MAX_NEW_TOKENS=128 \
 sbatch --job-name=pqs-serve-grpo-fp16 \
   --account=huterer2 \
-  --time=00:45:00 \
+  --time=00:20:00 \
   --export=ALL \
   slurm/serve_benchmark.sbatch
 
@@ -185,9 +198,11 @@ MODEL=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib \
 LABEL=base_awq \
 QUANTIZATION=awq \
 OUTPUT_DIR=$SERVE_OUT \
+NUM_PROMPTS=16 \
+MAX_NEW_TOKENS=128 \
 sbatch --job-name=pqs-serve-base-awq \
   --account=huterer2 \
-  --time=00:45:00 \
+  --time=00:20:00 \
   --export=ALL \
   slurm/serve_benchmark.sbatch
 
@@ -195,9 +210,11 @@ MODEL=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
 LABEL=grpo_awq \
 QUANTIZATION=awq \
 OUTPUT_DIR=$SERVE_OUT \
+NUM_PROMPTS=16 \
+MAX_NEW_TOKENS=128 \
 sbatch --job-name=pqs-serve-grpo-awq \
   --account=huterer2 \
-  --time=00:45:00 \
+  --time=00:20:00 \
   --export=ALL \
   slurm/serve_benchmark.sbatch
 ```
@@ -205,18 +222,23 @@ sbatch --job-name=pqs-serve-grpo-awq \
 Raw benchmark rows land in:
 
 ```text
-$PQS_ROOT/results/serving/qwen2_5_1_5b/serving_benchmark.csv
-$PQS_ROOT/results/serving/qwen2_5_1_5b/serving_benchmark.jsonl
+$PQS_ROOT/results/serving/qwen2_5_1_5b_memfix/serving_benchmark.csv
+$PQS_ROOT/results/serving/qwen2_5_1_5b_memfix/serving_benchmark.jsonl
 ```
 
-The public table stub is `results/serving_benchmark.md`:
+The public serving table is `results/serving_benchmark.md`:
 
 | Variant | Quantization | Throughput tok/s | Latency p50 s | Latency p95 s | Peak mem GB |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Base FP16 | none | TBD | TBD | TBD | TBD |
-| GRPO FP16 | none | TBD | TBD | TBD | TBD |
-| Base AWQ W4G128 | awq | TBD | TBD | TBD | TBD |
-| GRPO AWQ W4G128 | awq | TBD | TBD | TBD | TBD |
+| Base FP16 | none | 138.6 | 0.879 | 1.045 | 40.31 |
+| GRPO FP16 | none | 139.0 | 0.879 | 1.060 | 40.31 |
+| Base AWQ W4G128 | awq | 64.4 | 1.956 | 2.025 | 40.36 |
+| GRPO AWQ W4G128 | awq | 64.1 | 1.957 | 2.131 | 40.36 |
+
+In this small 1.5B / A40 run, AWQ was slower than FP16 under vLLM. The memory
+column is also not a model-weight-footprint claim: vLLM was run with
+`gpu_memory_utilization=0.90`, so it reserves most of the A40 for KV-cache
+capacity in every row.
 
 ## Layout
 
@@ -235,12 +257,12 @@ Large local artifacts (datasets, checkpoints, raw logs) are git-ignored.
 The `notes/` directory is a dated log of the actual investigation, kept readable for
 interview prep: `day3.md` (advantage-collapse diagnosis + fix), `day4.md` (quantization
 pipeline, 0.5B floor, stopping bug), `day5.md` (final data1000 matrix and interpretation),
-plus `grpo-literature.md` (annotated reading list: DeepSeekMath, Dr. GRPO, DAPO, GSPO,
-RLVR, quantization×RL).
+`day6.md` (serving/benchmark interpretation), plus `grpo-literature.md` (annotated
+reading list: DeepSeekMath, Dr. GRPO, DAPO, GSPO, RLVR, quantization×RL).
 
 ## Future work
 
 - Larger-n eval (test200+) to tighten the AWQ-survival estimate.
 - MATH or another harder benchmark, where base headroom is larger.
-- Fill `results/serving_benchmark.md` after running the four A40 vLLM benchmark jobs.
+- Serving memory-fit/capacity sweep if making a strong claim about AWQ concurrency.
 - FSDP multi-GPU scaling to a ≥7B model, where sharding is actually required.

@@ -67,4 +67,6 @@ larger-n confirmation.
 
 Serving metrics are tracked separately in `results/serving_benchmark.md`. They are
 not needed for the accuracy/quantization claim above; they are the systems payoff
-check for the same checkpoint family using vLLM on one A40.
+check for the same checkpoint family using vLLM on one A40. In the completed
+small-model serving run, AWQ did not improve throughput over FP16, so the honest
+claim is deployment coverage plus measured serving behavior rather than a speedup.
