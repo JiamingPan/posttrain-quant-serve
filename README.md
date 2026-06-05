@@ -103,130 +103,15 @@ scripts/benchmark.py            vLLM offline throughput, latency, and memory ben
 
 ## Serving & benchmarking
 
-Quantization is useful only if it improves the cost or speed of inference. The science
-result above answers the accuracy side: the GRPO gain survives W4. The serving path adds
-the engineering payoff side: run the dense and AWQ checkpoints through vLLM on one A40 and
-measure throughput, request latency, and peak GPU memory. vLLM is an inference engine with
-an OpenAI-compatible API server and efficient KV-cache scheduling; here it is used only as
-a single-GPU measurement tool, not as a distributed serving stack.
+The main result is accuracy-side: the GRPO gain survives W4 quantization. The
+serving code is included as a deployment sanity check, not as a claim that AWQ is
+faster in this small setting. `scripts/serve.py` can start an OpenAI-compatible
+vLLM endpoint for the dense or AWQ checkpoints, and `scripts/benchmark.py`
+measures offline vLLM throughput, latency, and device allocation on one GPU.
 
-Install serving extras once on Great Lakes if vLLM is not already importable. Do
-not let several benchmark jobs install at the same time:
-
-```bash
-cd $PQS_ROOT/repos/posttrain-quant-serve
-source scripts/activate_great_lakes.sh
-
-INSTALL_SERVING_DEPS=1 \
-NUM_PROMPTS=1 \
-MAX_NEW_TOKENS=16 \
-sbatch --job-name=pqs-serve-install \
-  --account=huterer2 \
-  --time=00:45:00 \
-  --export=ALL \
-  slurm/serve_benchmark.sbatch
-```
-
-Serve the FP16 base model:
-
-```bash
-python scripts/serve.py \
-  --mode server \
-  --model Qwen/Qwen2.5-1.5B-Instruct \
-  --quantization none \
-  --dtype float16 \
-  --port 8000
-```
-
-Serve the GRPO AWQ W4G128 checkpoint:
-
-```bash
-python scripts/serve.py \
-  --mode server \
-  --model $PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
-  --quantization awq \
-  --dtype float16 \
-  --port 8000
-```
-
-Smoke the OpenAI-compatible endpoint:
-
-```bash
-curl http://127.0.0.1:8000/v1/completions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "Qwen/Qwen2.5-1.5B-Instruct",
-    "prompt": "Solve the math problem. Show the reasoning briefly. Problem: Janet has 3 bags with 4 marbles each. How many marbles does she have? End with #### <answer>.",
-    "max_tokens": 128,
-    "temperature": 0
-  }'
-```
-
-When serving a local checkpoint path, set the JSON `model` field to that same path.
-
-Run the serving benchmark on one A40. These jobs do **not** retrain or reevaluate the
-accuracy matrix; they only measure vLLM offline generation speed and memory.
-
-```bash
-SERVE_OUT=$PQS_ROOT/results/serving/qwen2_5_1_5b
-
-MODEL=Qwen/Qwen2.5-1.5B-Instruct \
-LABEL=base_fp16 \
-QUANTIZATION=none \
-OUTPUT_DIR=$SERVE_OUT \
-NUM_PROMPTS=16 \
-MAX_NEW_TOKENS=128 \
-sbatch --job-name=pqs-serve-base-fp16 \
-  --account=huterer2 \
-  --time=00:20:00 \
-  --export=ALL \
-  slurm/serve_benchmark.sbatch
-
-MODEL=$PQS_ROOT/ckpts/qwen2_5_1_5b_grpo_data1000_chat \
-LABEL=grpo_fp16 \
-QUANTIZATION=none \
-OUTPUT_DIR=$SERVE_OUT \
-NUM_PROMPTS=16 \
-MAX_NEW_TOKENS=128 \
-sbatch --job-name=pqs-serve-grpo-fp16 \
-  --account=huterer2 \
-  --time=00:20:00 \
-  --export=ALL \
-  slurm/serve_benchmark.sbatch
-
-MODEL=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_base_awq_w4g128_chatcalib \
-LABEL=base_awq \
-QUANTIZATION=awq \
-OUTPUT_DIR=$SERVE_OUT \
-NUM_PROMPTS=16 \
-MAX_NEW_TOKENS=128 \
-sbatch --job-name=pqs-serve-base-awq \
-  --account=huterer2 \
-  --time=00:20:00 \
-  --export=ALL \
-  slurm/serve_benchmark.sbatch
-
-MODEL=$PQS_ROOT/ckpts_awq/qwen2_5_1_5b_data1000_chat_awq_w4g128 \
-LABEL=grpo_awq \
-QUANTIZATION=awq \
-OUTPUT_DIR=$SERVE_OUT \
-NUM_PROMPTS=16 \
-MAX_NEW_TOKENS=128 \
-sbatch --job-name=pqs-serve-grpo-awq \
-  --account=huterer2 \
-  --time=00:20:00 \
-  --export=ALL \
-  slurm/serve_benchmark.sbatch
-```
-
-Raw benchmark rows land in:
-
-```text
-$PQS_ROOT/results/serving/qwen2_5_1_5b_memfix/serving_benchmark.csv
-$PQS_ROOT/results/serving/qwen2_5_1_5b_memfix/serving_benchmark.jsonl
-```
-
-The public serving table is `results/serving_benchmark.md`:
+The completed single-A40 benchmark used 16 chat-formatted GSM8K prompts with
+`max_new_tokens=128`. It did **not** retrain, requantize, or rerun the accuracy
+matrix.
 
 | Variant | Quantization | Throughput tok/s | Latency p50 s | Latency p95 s | Peak mem GB |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -238,7 +123,8 @@ The public serving table is `results/serving_benchmark.md`:
 In this small 1.5B / A40 run, AWQ was slower than FP16 under vLLM. The memory
 column is also not a model-weight-footprint claim: vLLM was run with
 `gpu_memory_utilization=0.90`, so it reserves most of the A40 for KV-cache
-capacity in every row.
+capacity in every row. Full interpretation is in `results/serving_benchmark.md`;
+the operational entry point is `slurm/serve_benchmark.sbatch`.
 
 ## Layout
 

@@ -156,8 +156,8 @@ What this add-on measures:
   small serving table.
 
 The honest framing is: the Day 5 matrix answers whether GRPO's accuracy gain
-survives W4; the serving benchmark checks the systems payoff of W4 on the same
-checkpoint family.
+survives W4; the serving benchmark is a deployment sanity check on the same
+checkpoint family. It should not be written as a proof that AWQ speeds up serving.
 
 ## Serving vs Benchmarking
 
@@ -192,7 +192,8 @@ What counts as done for the vLLM part:
 - `serve.py` can launch a real vLLM server for FP16 and AWQ checkpoints;
 - `benchmark.py` can run vLLM offline and write CSV/JSONL rows;
 - `slurm/serve_benchmark.sbatch` runs one benchmark row on a single A40;
-- the README shows copy-paste commands for server mode and benchmark mode;
+- the README summarizes the server and benchmark paths without exposing raw
+  cluster run details;
 - `results/serving_benchmark.md` is filled from the four benchmark rows:
   base FP16, GRPO FP16, base AWQ, and GRPO AWQ.
 
@@ -214,14 +215,20 @@ The completed A40 vLLM offline benchmark used 16 GSM8K test prompts and
 
 The honest read is that AWQ did not produce a speedup in this specific
 small-model serving run. It was about half the FP16 throughput. That does not
-change the main accuracy result; it only says the systems payoff is not automatic
-for Qwen2.5-1.5B on one A40 with this vLLM/AWQ path.
+change the main accuracy result; it says the serving payoff was not observed for
+Qwen2.5-1.5B on one A40 with this vLLM/AWQ path.
 
 The memory column is also not a clean weight-footprint comparison. The benchmark
 sampled device memory with `nvidia-smi`, and vLLM was configured with
 `gpu_memory_utilization=0.90`. vLLM therefore reserves most of the A40 for
 KV-cache capacity in every row. A separate capacity sweep would be needed to
 claim that AWQ supports more concurrent requests or a lower memory floor.
+
+The interview-safe version is: the project answers the accuracy and
+quantizability question. The serving extension proves the checkpoints can be run
+through vLLM and records an honest negative serving result for this small-model
+setup. I would not claim AWQ improves serving here; I would say the next serving
+question is a capacity or larger-model sweep.
 
 ## Interview Talking Points
 
