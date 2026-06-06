@@ -60,11 +60,15 @@ LABEL="${LABEL:-$(basename "$MODEL")}"
 QUANTIZATION="${QUANTIZATION:-none}"
 OUTPUT_DIR="${OUTPUT_DIR:-$PQS_ROOT/results/serving/qwen2_5_1_5b}"
 NUM_PROMPTS="${NUM_PROMPTS:-64}"
+REQUEST_MODE="${REQUEST_MODE:-sequential}"
+BATCH_SIZE="${BATCH_SIZE:-}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-256}"
 DTYPE="${DTYPE:-float16}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-2048}"
 SPLIT="${SPLIT:-test}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.90}"
+MAX_NUM_SEQS="${MAX_NUM_SEQS:-}"
+MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-}"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -74,6 +78,7 @@ cmd=(
   --label "$LABEL"
   --quantization "$QUANTIZATION"
   --num-prompts "$NUM_PROMPTS"
+  --request-mode "$REQUEST_MODE"
   --max-new-tokens "$MAX_NEW_TOKENS"
   --dtype "$DTYPE"
   --max-model-len "$MAX_MODEL_LEN"
@@ -81,6 +86,18 @@ cmd=(
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
   --output-dir "$OUTPUT_DIR"
 )
+
+if [[ -n "$BATCH_SIZE" ]]; then
+  cmd+=(--batch-size "$BATCH_SIZE")
+fi
+
+if [[ -n "$MAX_NUM_SEQS" ]]; then
+  cmd+=(--max-num-seqs "$MAX_NUM_SEQS")
+fi
+
+if [[ -n "$MAX_NUM_BATCHED_TOKENS" ]]; then
+  cmd+=(--max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS")
+fi
 
 if [[ "${TRUST_REMOTE_CODE:-0}" == "1" ]]; then
   cmd+=(--trust-remote-code)
@@ -92,11 +109,15 @@ echo "LABEL=$LABEL"
 echo "QUANTIZATION=$QUANTIZATION"
 echo "OUTPUT_DIR=$OUTPUT_DIR"
 echo "NUM_PROMPTS=$NUM_PROMPTS"
+echo "REQUEST_MODE=$REQUEST_MODE"
+echo "BATCH_SIZE=$BATCH_SIZE"
 echo "MAX_NEW_TOKENS=$MAX_NEW_TOKENS"
 echo "DTYPE=$DTYPE"
 echo "MAX_MODEL_LEN=$MAX_MODEL_LEN"
 echo "SPLIT=$SPLIT"
 echo "GPU_MEMORY_UTILIZATION=$GPU_MEMORY_UTILIZATION"
+echo "MAX_NUM_SEQS=$MAX_NUM_SEQS"
+echo "MAX_NUM_BATCHED_TOKENS=$MAX_NUM_BATCHED_TOKENS"
 
 printf 'Running:'
 printf ' %q' "${cmd[@]}"

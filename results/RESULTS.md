@@ -71,4 +71,5 @@ check for the same checkpoint family using vLLM on one A40. In the completed
 small-model serving run, AWQ did not improve throughput over FP16, and the peak
 memory column mostly reflects vLLM's KV-cache reservation policy. The honest
 claim is deployment coverage plus measured serving behavior, not a serving
-speedup.
+speedup. A batch/concurrency benchmark is the next serving test if making a
+capacity claim about AWQ.

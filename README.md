@@ -110,8 +110,8 @@ vLLM endpoint for the dense or AWQ checkpoints, and `scripts/benchmark.py`
 measures offline vLLM throughput, latency, and device allocation on one GPU.
 
 The completed single-A40 benchmark used 16 chat-formatted GSM8K prompts with
-`max_new_tokens=128`. It did **not** retrain, requantize, or rerun the accuracy
-matrix.
+`max_new_tokens=128` in sequential request mode. It did **not** retrain,
+requantize, or rerun the accuracy matrix.
 
 | Variant | Quantization | Throughput tok/s | Latency p50 s | Latency p95 s | Peak mem GB |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -125,6 +125,11 @@ column is also not a model-weight-footprint claim: vLLM was run with
 `gpu_memory_utilization=0.90`, so it reserves most of the A40 for KV-cache
 capacity in every row. Full interpretation is in `results/serving_benchmark.md`;
 the operational entry point is `slurm/serve_benchmark.sbatch`.
+
+For vLLM capacity testing, the benchmark also supports true batched offline
+requests with `REQUEST_MODE=batch` and `BATCH_SIZE=<N>`. That mode sends multiple
+prompts to one `llm.generate([...])` call, which is the right follow-up for
+testing whether AWQ helps under batching/concurrency pressure.
 
 ## Layout
 

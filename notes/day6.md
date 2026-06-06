@@ -224,6 +224,14 @@ sampled device memory with `nvidia-smi`, and vLLM was configured with
 KV-cache capacity in every row. A separate capacity sweep would be needed to
 claim that AWQ supports more concurrent requests or a lower memory floor.
 
+The first benchmark used sequential request mode: 16 prompts were measured one
+after another, not sent as one concurrent batch. That is a valid low-concurrency
+latency metric, but it is not the metric most favorable to vLLM or quantization.
+The follow-up benchmark should use `REQUEST_MODE=batch` and `BATCH_SIZE=16/32/64`
+so vLLM receives many prompts in one `llm.generate([...])` call. That tests
+throughput under batch pressure, which is closer to the reason AWQ might help:
+serving more work within the same memory budget.
+
 The interview-safe version is: the project answers the accuracy and
 quantizability question. The serving extension proves the checkpoints can be run
 through vLLM and records an honest negative serving result for this small-model

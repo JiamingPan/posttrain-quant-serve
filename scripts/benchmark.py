@@ -1,9 +1,10 @@
 """Benchmark one checkpoint with vLLM offline generation.
 
 The benchmark is intentionally self-contained: it loads a checkpoint with vLLM,
-builds realistic GSM8K chat-template prompts, runs sequential offline requests,
-and writes one result row to JSONL and CSV. It does not require a separately
-managed server process.
+builds realistic GSM8K chat-template prompts, runs offline requests, and writes
+one result row to JSONL and CSV. It can run either sequential one-prompt requests
+or batched requests that send many prompts to vLLM together. It does not require
+a separately managed server process.
 
 Example:
 
@@ -38,6 +39,11 @@ RESULT_FIELDS = [
     "max_new_tokens",
     "dtype",
     "max_model_len",
+    "request_mode",
+    "batch_size",
+    "num_batches",
+    "max_num_seqs",
+    "max_num_batched_tokens",
     "generated_tokens",
     "wall_time_s",
     "throughput_tok_s",
@@ -61,6 +67,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Use 'awq' for saved AWQ W4G128 checkpoints; use 'none' for dense checkpoints.",
     )
     parser.add_argument("--num-prompts", type=int, default=64, help="Number of GSM8K prompts to run.")
+    parser.add_argument(
+        "--request-mode",
+        choices=["sequential", "batch"],
+        default="sequential",
+        help=(
+            "sequential sends one prompt per llm.generate call; batch sends chunks of "
+            "--batch-size prompts per call to test vLLM batch pressure."
+        ),
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Prompts per llm.generate call in --request-mode batch. Defaults to --num-prompts.",
+    )
     parser.add_argument("--split", default="test", choices=["train", "test"], help="GSM8K split.")
     parser.add_argument("--max-new-tokens", type=int, default=256, help="Maximum generated tokens.")
     parser.add_argument(
@@ -74,6 +95,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=float,
         default=0.90,
         help="vLLM GPU memory utilization cap.",
+    )
+    parser.add_argument("--max-num-seqs", type=int, default=None, help="Optional vLLM max_num_seqs override.")
+    parser.add_argument(
+        "--max-num-batched-tokens",
+        type=int,
+        default=None,
+        help="Optional vLLM max_num_batched_tokens override.",
     )
     parser.add_argument("--temperature", type=float, default=0.0, help="Sampling temperature.")
     parser.add_argument("--top-p", type=float, default=1.0, help="Nucleus sampling top-p.")
@@ -224,10 +252,80 @@ def write_result(output_dir: Path, row: dict[str, Any]) -> tuple[Path, Path]:
     return jsonl_path, csv_path
 
 
+def build_llm(args: argparse.Namespace) -> Any:
+    from vllm import LLM
+
+    llm_kwargs: dict[str, Any] = {
+        "model": args.model,
+        "quantization": None if args.quantization == "none" else args.quantization,
+        "dtype": args.dtype,
+        "max_model_len": args.max_model_len,
+        "trust_remote_code": args.trust_remote_code,
+        "gpu_memory_utilization": args.gpu_memory_utilization,
+    }
+    if args.max_num_seqs is not None:
+        llm_kwargs["max_num_seqs"] = args.max_num_seqs
+    if args.max_num_batched_tokens is not None:
+        llm_kwargs["max_num_batched_tokens"] = args.max_num_batched_tokens
+    return LLM(**llm_kwargs)
+
+
+def generate_sequential(llm: Any, sampling: Any, prompts: list[str], label: str) -> tuple[list[float], int, int]:
+    latencies: list[float] = []
+    generated_tokens = 0
+
+    for i, prompt in enumerate(prompts, start=1):
+        start = time.perf_counter()
+        outputs = llm.generate([prompt], sampling)
+        latency = time.perf_counter() - start
+        latencies.append(latency)
+        generated_tokens += sum(count_generated_tokens(output) for output in outputs)
+        print(
+            f"[{label}] sequential {i}/{len(prompts)} "
+            f"latency_s={latency:.3f} generated_tokens={generated_tokens}",
+            flush=True,
+        )
+
+    return latencies, generated_tokens, len(prompts)
+
+
+def generate_batched(
+    llm: Any,
+    sampling: Any,
+    prompts: list[str],
+    label: str,
+    batch_size: int,
+) -> tuple[list[float], int, int]:
+    if batch_size <= 0:
+        raise SystemExit("--batch-size must be positive.")
+
+    latencies: list[float] = []
+    generated_tokens = 0
+    num_batches = 0
+    total_batches = (len(prompts) + batch_size - 1) // batch_size
+
+    for start_index in range(0, len(prompts), batch_size):
+        num_batches += 1
+        batch_prompts = prompts[start_index : start_index + batch_size]
+        start = time.perf_counter()
+        outputs = llm.generate(batch_prompts, sampling)
+        latency = time.perf_counter() - start
+        latencies.extend([latency] * len(batch_prompts))
+        generated_tokens += sum(count_generated_tokens(output) for output in outputs)
+        print(
+            f"[{label}] batch {num_batches}/{total_batches} "
+            f"batch_size={len(batch_prompts)} latency_s={latency:.3f} "
+            f"generated_tokens={generated_tokens}",
+            flush=True,
+        )
+
+    return latencies, generated_tokens, num_batches
+
+
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     try:
         import torch
-        from vllm import LLM, SamplingParams
+        from vllm import SamplingParams
     except ImportError as exc:
         raise SystemExit(
             "Benchmarking requires vLLM and torch. Install serving deps with "
@@ -237,6 +335,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     prompts = load_prompts(args.model, args.split, args.num_prompts, args.trust_remote_code)
     if not prompts:
         raise SystemExit("No prompts loaded; check --split and --num-prompts.")
+    batch_size = args.batch_size if args.batch_size is not None else len(prompts)
+    if args.request_mode == "sequential":
+        batch_size = 1
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -245,35 +346,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     memory_sampler = GpuMemorySampler()
     memory_sampler.start()
 
-    llm = LLM(
-        model=args.model,
-        quantization=None if args.quantization == "none" else args.quantization,
-        dtype=args.dtype,
-        max_model_len=args.max_model_len,
-        trust_remote_code=args.trust_remote_code,
-        gpu_memory_utilization=args.gpu_memory_utilization,
-    )
+    llm = build_llm(args)
     sampling = SamplingParams(
         temperature=args.temperature,
         top_p=args.top_p,
         max_tokens=args.max_new_tokens,
     )
 
-    latencies: list[float] = []
-    generated_tokens = 0
     wall_start = time.perf_counter()
 
-    for i, prompt in enumerate(prompts, start=1):
-        start = time.perf_counter()
-        outputs = llm.generate([prompt], sampling)
-        latency = time.perf_counter() - start
-        latencies.append(latency)
-        generated_tokens += sum(count_generated_tokens(output) for output in outputs)
-        print(
-            f"[{args.label or Path(args.model).name}] {i}/{len(prompts)} "
-            f"latency_s={latency:.3f} generated_tokens={generated_tokens}",
-            flush=True,
-        )
+    label = args.label or Path(args.model).name
+    if args.request_mode == "batch":
+        latencies, generated_tokens, num_batches = generate_batched(llm, sampling, prompts, label, batch_size)
+    else:
+        latencies, generated_tokens, num_batches = generate_sequential(llm, sampling, prompts, label)
 
     wall_time = time.perf_counter() - wall_start
     peak_mem_gb = None
@@ -298,6 +384,11 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "max_new_tokens": args.max_new_tokens,
         "dtype": args.dtype,
         "max_model_len": args.max_model_len,
+        "request_mode": args.request_mode,
+        "batch_size": batch_size,
+        "num_batches": num_batches,
+        "max_num_seqs": args.max_num_seqs,
+        "max_num_batched_tokens": args.max_num_batched_tokens,
         "generated_tokens": generated_tokens,
         "wall_time_s": wall_time,
         "throughput_tok_s": generated_tokens / wall_time if wall_time > 0 else 0.0,

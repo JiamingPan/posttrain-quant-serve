@@ -10,6 +10,7 @@ Setup:
 - engine: vLLM offline generation;
 - model family: `Qwen2.5-1.5B-Instruct`;
 - prompts: 16 GSM8K test prompts, chat-formatted;
+- request mode: sequential, one prompt per `llm.generate` call;
 - generation cap: `max_new_tokens=128`;
 - dtype: `float16`;
 - `max_model_len=2048`;
@@ -49,6 +50,23 @@ measurement, not a clean model-weight-footprint comparison and not evidence that
 quantization failed to reduce checkpoint size. A separate disk-size,
 memory-after-load, or capacity/concurrency sweep would be needed to make a
 strong claim about serving more concurrent requests from AWQ.
+
+## Batch-Pressure Follow-Up
+
+The sequential table above is a valid low-concurrency latency measurement, but
+it is not the full vLLM serving story. vLLM is designed to improve utilization by
+batching and scheduling many requests together. To test that setting, run
+`scripts/benchmark.py` or `slurm/serve_benchmark.sbatch` with:
+
+```text
+REQUEST_MODE=batch
+BATCH_SIZE=16, 32, or 64
+NUM_PROMPTS=<same as BATCH_SIZE for one full batch, or larger for multiple batches>
+```
+
+In batch mode, the benchmark sends a list of prompts to a single
+`llm.generate([...])` call. That is the right follow-up for testing whether AWQ
+helps under batch/concurrency pressure or only preserves accuracy.
 
 ## Interview Summary
 
