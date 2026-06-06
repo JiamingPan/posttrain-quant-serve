@@ -291,11 +291,25 @@ so vLLM receives many prompts in one `llm.generate([...])` call. That tests
 throughput under batch pressure, which is closer to the reason AWQ might help:
 serving more work within the same memory budget.
 
+The batch-pressure sweep was then run with batch sizes 16, 32, and 64. It
+confirmed that batching helps vLLM throughput overall, but AWQ still stayed
+slower than FP16:
+
+| Batch size | Base FP16 tok/s | Base AWQ tok/s | GRPO FP16 tok/s | GRPO AWQ tok/s |
+| ---: | ---: | ---: | ---: | ---: |
+| 16 | 1569.1 | 793.4 | 1538.9 | 900.9 |
+| 32 | 3060.9 | 1494.0 | 3090.0 | 1700.2 |
+| 64 | 5377.1 | 3052.6 | 5687.7 | 3275.8 |
+
+So the serving conclusion is now stronger and cleaner: the first sequential
+benchmark was not hiding an AWQ speedup. Even under batched vLLM generation, AWQ
+did not improve throughput or p50 latency for this 1.5B model on one A40.
+
 The interview-safe version is: the project answers the accuracy and
 quantizability question. The serving extension proves the checkpoints can be run
-through vLLM and records an honest negative serving result for this small-model
-setup. I would not claim AWQ improves serving here; I would say the next serving
-question is a capacity or larger-model sweep.
+through vLLM and records an honest negative serving-speed result for this
+small-model setup. I would not claim AWQ improves serving here; I would say the
+next serving question is a memory capacity or larger-model sweep.
 
 ## Interview Talking Points
 

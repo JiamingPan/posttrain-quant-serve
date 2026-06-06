@@ -109,27 +109,26 @@ faster in this small setting. `scripts/serve.py` can start an OpenAI-compatible
 vLLM endpoint for the dense or AWQ checkpoints, and `scripts/benchmark.py`
 measures offline vLLM throughput, latency, and device allocation on one GPU.
 
-The completed single-A40 benchmark used 16 chat-formatted GSM8K prompts with
-`max_new_tokens=128` in sequential request mode. It did **not** retrain,
-requantize, or rerun the accuracy matrix.
+The completed single-A40 serving benchmark tested both sequential requests and
+batched vLLM generation. It did **not** retrain, requantize, or rerun the
+accuracy matrix.
+
+Batch-64 summary:
 
 | Variant | Quantization | Throughput tok/s | Latency p50 s | Latency p95 s | Peak mem GB |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Base FP16 | none | 138.6 | 0.879 | 1.045 | 40.31 |
-| GRPO FP16 | none | 139.0 | 0.879 | 1.060 | 40.31 |
-| Base AWQ W4G128 | awq | 64.4 | 1.956 | 2.025 | 40.36 |
-| GRPO AWQ W4G128 | awq | 64.1 | 1.957 | 2.131 | 40.36 |
+| Base FP16 | none | 5377.1 | 1.226 | 2.200 | 40.27 |
+| GRPO FP16 | none | 5687.7 | 1.238 | 2.045 | 40.27 |
+| Base AWQ W4G128 | awq | 3052.6 | 2.307 | 2.953 | 40.23 |
+| GRPO AWQ W4G128 | awq | 3275.8 | 2.311 | 3.043 | 40.23 |
 
-In this small 1.5B / A40 run, AWQ was slower than FP16 under vLLM. The memory
-column is also not a model-weight-footprint claim: vLLM was run with
+In this small 1.5B / A40 run, AWQ was slower than FP16 under vLLM in both
+sequential and batched modes. Quantization preserved the accuracy-side GRPO
+result, but it did not produce a serving throughput or latency win here. The
+memory column is also not a model-weight-footprint claim: vLLM was run with
 `gpu_memory_utilization=0.90`, so it reserves most of the A40 for KV-cache
-capacity in every row. Full interpretation is in `results/serving_benchmark.md`;
-the operational entry point is `slurm/serve_benchmark.sbatch`.
-
-For vLLM capacity testing, the benchmark also supports true batched offline
-requests with `REQUEST_MODE=batch` and `BATCH_SIZE=<N>`. That mode sends multiple
-prompts to one `llm.generate([...])` call, which is the right follow-up for
-testing whether AWQ helps under batching/concurrency pressure.
+capacity in every row. Full sequential and batch-sweep tables are in
+`results/serving_benchmark.md`.
 
 ## Layout
 

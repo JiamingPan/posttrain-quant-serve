@@ -68,8 +68,7 @@ larger-n confirmation.
 Serving metrics are tracked separately in `results/serving_benchmark.md`. They are
 not needed for the accuracy/quantization claim above. They are a deployment sanity
 check for the same checkpoint family using vLLM on one A40. In the completed
-small-model serving run, AWQ did not improve throughput over FP16, and the peak
-memory column mostly reflects vLLM's KV-cache reservation policy. The honest
-claim is deployment coverage plus measured serving behavior, not a serving
-speedup. A batch/concurrency benchmark is the next serving test if making a
-capacity claim about AWQ.
+small-model serving runs, AWQ did not improve throughput over FP16 in either
+sequential or batched generation, and the peak memory column mostly reflects
+vLLM's KV-cache reservation policy. The honest claim is deployment coverage plus
+measured serving behavior, not a serving speedup.
