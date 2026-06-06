@@ -139,6 +139,65 @@ only 100 prompts, and it does not mean every prompt appeared exactly twice in a
 simple fixed order. It is the practical exposure count: about 2000 training
 prompt uses divided by 1000 unique training prompts.
 
+## What Is Being Quantized
+
+There are two separate axes in the final matrix.
+
+The training axis is:
+
+- `base`: the original `Qwen2.5-1.5B-Instruct` checkpoint;
+- `GRPO`: the same architecture after GRPO post-training on 1000 GSM8K train
+  prompts.
+
+The quantization axis is:
+
+- `fp16`: dense model loading, using 16-bit floating-point weights/compute;
+- `bnb-W4`: load-time bitsandbytes NF4 4-bit quantization;
+- `AWQ W4G128`: saved AutoAWQ 4-bit, group-size-128 checkpoint.
+
+So the final matrix is not six unrelated models. It is two model states crossed
+with three precision/quantization settings:
+
+| Label | Meaning |
+| --- | --- |
+| `base_fp16` | original dense Qwen2.5-1.5B-Instruct |
+| `g8_dr100_fp16` | GRPO-trained dense checkpoint |
+| `base_w4` | original base checkpoint loaded with bnb NF4 W4 |
+| `g8_dr100_w4` | GRPO checkpoint loaded with bnb NF4 W4 |
+| `base_awq` | original base checkpoint converted to saved AWQ W4G128 |
+| `g8_dr100_awq` | GRPO checkpoint converted to saved AWQ W4G128 |
+
+The object being quantized is the model checkpoint's weights, especially the
+large transformer linear layers. For Qwen-style blocks, the important target
+layers are the attention projections and MLP projections:
+
+- attention: `q_proj`, `k_proj`, `v_proj`, `o_proj`;
+- MLP: `gate_proj`, `up_proj`, `down_proj`.
+
+These matrices dominate the parameter count and are what W4 quantization is
+meant to compress. The quantization is not applied to the GSM8K prompts, answer
+strings, reward function, tokenizer, parser, or evaluation metric. It also does
+not mean every byte used during inference becomes 4-bit. Runtime memory still
+includes KV cache, activations, temporary CUDA/vLLM buffers, scheduler overhead,
+and metadata.
+
+The two W4 methods in this repo differ operationally:
+
+- `bnb-W4` is load-time quantization. `eval_gsm8k_compare.py` loads the dense
+  checkpoint with `BitsAndBytesConfig(load_in_4bit=True,
+  bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16,
+  bnb_4bit_use_double_quant=True)`. It does not write a separate quantized
+  checkpoint to disk for this project.
+- `AWQ W4G128` is an explicit saved checkpoint. `quantize_awq.py` uses AutoAWQ
+  with `w_bit=4`, `q_group_size=128`, `zero_point=true`, and `version=GEMM`.
+  It calibrates on chat-formatted GSM8K training text plus reference answers,
+  then saves a quantized model directory under `ckpts_awq/`.
+
+The research question is therefore precise: after GRPO changes the dense model
+weights, do those changed weights still survive W4 quantization? That is why the
+main comparison is not just `base` vs `AWQ`; it is the change in behavior from
+FP16 to W4 for both the base checkpoint and the GRPO checkpoint.
+
 ## Serving Add-On Plan
 
 The remaining repo gap is engineering, not science: `scripts/serve.py` and
@@ -264,3 +323,13 @@ size 1 and gradient accumulation 8, each optimizer update collects gradients fro
 the training subset contains 1000 prompts, that is about two passes over the
 training slice. The held-out test100 result is separate: those 100 examples were
 used only for evaluation, not for training.
+
+If asked "what exactly did you quantize?", the answer is: I quantized the model
+weights, not the dataset or the reward function. The base checkpoint and the
+GRPO checkpoint are two different weight states of the same Qwen2.5-1.5B
+architecture. For each state I evaluated dense FP16, bitsandbytes NF4 W4
+load-time quantization, and saved AutoAWQ W4G128. In practice, W4 targets the
+large transformer linear layers, especially attention projections
+(`q_proj/k_proj/v_proj/o_proj`) and MLP projections
+(`gate_proj/up_proj/down_proj`). The question was whether the GRPO-shifted
+weights still quantize cleanly compared with the original base weights.
