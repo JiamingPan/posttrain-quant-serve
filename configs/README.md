@@ -1,16 +1,22 @@
 # Configs
 
-The Day 0 GRPO smoke path is script-driven and does not require a YAML config.
+Training and serving remain script-driven; this repository does not require a
+parallel YAML configuration system.
 
-Primary entry point:
+Primary entry points:
 
 ```bash
+# Existing single-GPU GRPO oracle
 bash scripts/run_grpo_smoke.sh
+
+# Direct PyTorch FSDP2 trainers
+python -m train.fsdp_sft --help
+python -m train.fsdp_grpo --help
+
+# Single-node Slurm/torchrun wrapper
+bash scripts/launch_slurm.sh --help
 ```
 
-Keep this directory for later reproducibility configs:
-
-- Accelerate configs for multi-GPU GRPO
-- vLLM serving configs
-- AWQ quantization configs
-- Eval prompt/config files
+Command-line arguments are the canonical configuration. Slurm wrappers map
+environment variables into explicit flags, print the resolved command, and
+write the resolved run configuration beside training records.
