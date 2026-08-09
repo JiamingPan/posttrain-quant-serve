@@ -12,6 +12,7 @@ from train.fsdp_sft import (
     assert_adamw_moment_dtype,
     backward_scale,
     prepare_step_batches,
+    resolve_sft_source,
     sft_optimizer_step,
 )
 from train.gsm8k_data import (
@@ -184,6 +185,19 @@ def test_adamw_moment_dtype_check_rejects_an_unexpected_state_dtype() -> None:
     assert_adamw_moment_dtype(optimizer, torch.float32)
     with pytest.raises(RuntimeError, match="exp_avg.*torch.float32.*torch.bfloat16"):
         assert_adamw_moment_dtype(optimizer, torch.bfloat16)
+
+
+def test_local_model_source_uses_the_same_immutable_digest_on_fresh_and_resume(tmp_path) -> None:
+    model_dir = tmp_path / "hf"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    (model_dir / "model.safetensors").write_bytes(b"weights")
+
+    fresh = resolve_sft_source(model_dir, revision=None)
+    resumed = resolve_sft_source(model_dir, revision=None)
+
+    assert len(fresh.revision) == 64
+    assert resumed.revision == fresh.revision
 
 
 @pytest.mark.cuda

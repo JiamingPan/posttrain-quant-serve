@@ -133,6 +133,25 @@ def test_generation_left_pads_repeats_and_moves_completed_rollout_to_cpu() -> No
     assert all(parameter.grad is None for parameter in policy.parameters())
 
 
+def test_rollout_applies_the_configured_reward_scaling() -> None:
+    batch = generate_rollout_batch(
+        TinyGeneratingPolicy(),
+        TinyTokenizer(),
+        prompt_texts=["first"],
+        answers=["work #### 4"],
+        config=RolloutConfig(
+            num_generations=2,
+            max_prompt_length=4,
+            max_completion_length=3,
+            rollout_mode="reshard",
+            scale_rewards="group",
+        ),
+        ctx=SimpleNamespace(world_size=1, device=torch.device("cpu")),
+    )
+
+    assert batch.advantages.tolist() == [1.0, -1.0]
+
+
 def test_teacher_forced_reference_scoring_is_inference_only_and_cpu_backed() -> None:
     reference = TinyGeneratingPolicy()
     for parameter in reference.parameters():

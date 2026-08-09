@@ -18,9 +18,11 @@ import torch.nn.functional as F
 from torch import nn
 
 from train.checkpointing import (
+    HFCheckpointSource,
     TrainProgress,
     load_dcp_checkpoint,
     load_hf_weights_into_shards,
+    resolve_hf_checkpoint_source,
     resolve_resume_checkpoint,
     save_dcp_checkpoint,
 )
@@ -357,15 +359,13 @@ def assert_adamw_moment_dtype(
         raise RuntimeError("AdamW moment state was not initialized after the optimizer step")
 
 
-def _resolved_snapshot(model: str, revision: str | None) -> tuple[Path, str | None]:
-    candidate = Path(model)
-    if candidate.is_dir():
-        return candidate.resolve(), revision
-    from huggingface_hub import snapshot_download
+def resolve_sft_source(
+    model: str | Path,
+    revision: str | None,
+) -> HFCheckpointSource:
+    """Resolve one immutable model source for both fresh load and resume."""
 
-    snapshot = Path(snapshot_download(repo_id=model, revision=revision)).resolve()
-    resolved_revision = snapshot.name if snapshot.parent.name == "snapshots" else revision
-    return snapshot, resolved_revision
+    return resolve_hf_checkpoint_source(model, revision=revision)
 
 
 def _dataset_digest(rows: Sequence[MappingLike]) -> str:
@@ -481,7 +481,9 @@ def run_sft(config: SFTConfig) -> None:
 
         from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
-        snapshot, resolved_revision = _resolved_snapshot(config.model, config.revision)
+        model_source = resolve_sft_source(config.model, config.revision)
+        snapshot = model_source.path
+        resolved_revision = model_source.revision
         tokenizer = AutoTokenizer.from_pretrained(snapshot)
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -519,7 +521,7 @@ def run_sft(config: SFTConfig) -> None:
                 model_digest = source.revision
             else:
                 model.to_empty(device=ctx.device)
-                model_digest = resolved_revision or str(snapshot)
+                model_digest = model_source.revision
         else:
             model = AutoModelForCausalLM.from_pretrained(
                 snapshot,
@@ -530,7 +532,7 @@ def run_sft(config: SFTConfig) -> None:
                 model,
                 enabled=config.activation_checkpointing,
             )
-            model_digest = resolved_revision or str(snapshot)
+            model_digest = model_source.revision
 
         optimizer = torch.optim.AdamW(
             model.parameters(),

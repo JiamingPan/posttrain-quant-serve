@@ -12,6 +12,8 @@ from train.checkpointing import (
     TrainProgress,
     checkpoint_manifest,
     load_dcp_checkpoint,
+    load_dcp_model_only,
+    resolve_hf_checkpoint_source,
     resolve_resume_checkpoint,
     save_dcp_checkpoint,
 )
@@ -64,6 +66,36 @@ def test_explicit_resume_refuses_checkpoint_without_success_marker(tmp_path) -> 
 
     with pytest.raises(ValueError, match="not a published checkpoint"):
         resolve_resume_checkpoint(str(partial), output_dir=tmp_path)
+
+
+def test_local_hf_source_resolves_to_an_immutable_content_digest(tmp_path) -> None:
+    model_dir = tmp_path / "hf"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text("{}", encoding="utf-8")
+    weights = model_dir / "model.safetensors"
+    weights.write_bytes(b"weights-v1")
+
+    first = resolve_hf_checkpoint_source(model_dir)
+    claimed = resolve_hf_checkpoint_source(model_dir, revision="external-label")
+    weights.write_bytes(b"weights-v2")
+    second = resolve_hf_checkpoint_source(model_dir)
+
+    assert first.path == model_dir.resolve()
+    assert len(first.revision) == 64
+    assert claimed.revision == first.revision
+    assert first.revision != second.revision
+
+
+def test_resolved_hf_cache_snapshot_preserves_its_commit_revision(tmp_path) -> None:
+    commit = "a" * 40
+    snapshot = tmp_path / "models--org--model" / "snapshots" / commit
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot / "model.safetensors").write_bytes(b"weights")
+
+    source = resolve_hf_checkpoint_source(snapshot, revision=commit)
+
+    assert source.revision == commit
 
 
 def test_manifest_validates_directory_step(tmp_path) -> None:
@@ -141,6 +173,42 @@ def test_single_process_dcp_restores_model_optimizer_scheduler_sampler_and_rng(t
     assert optimizer_keys_before == set(optimizer.state_dict()["state"])
     for actual, expected in zip(model.parameters(), saved_parameters):
         assert torch.equal(actual, expected)
+
+
+@pytest.mark.filterwarnings("ignore:torch.distributed is unavailable or uninitialized")
+@pytest.mark.filterwarnings("ignore:TypedStorage is deprecated")
+def test_model_only_load_initializes_a_policy_from_a_training_checkpoint(tmp_path) -> None:
+    torch.manual_seed(31)
+    model = nn.Linear(3, 2)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1.0)
+    sampler = CheckpointableDistributedSampler(8, rank=0, world_size=1, seed=2)
+    model(torch.randn(2, 3)).sum().backward()
+    optimizer.step()
+    scheduler.step()
+    optimizer.zero_grad(set_to_none=True)
+    expected = [parameter.detach().clone() for parameter in model.parameters()]
+    checkpoint = save_dcp_checkpoint(
+        tmp_path,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        sampler=sampler,
+        progress=TrainProgress(
+            global_step=1,
+            consumed_tokens=4,
+            sampler_state=sampler.state_dict(),
+            rng_states=[],
+            config={"stage": "sft"},
+            source_digests={"model": "base", "data": "fixed"},
+        ),
+    )
+    initialized = nn.Linear(3, 2)
+
+    load_dcp_model_only(checkpoint, model=initialized)
+
+    for actual, wanted in zip(initialized.parameters(), expected):
+        assert torch.equal(actual, wanted)
 
 
 @pytest.mark.cuda

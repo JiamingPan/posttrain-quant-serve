@@ -487,6 +487,36 @@ def load_dcp_checkpoint(
     return loaded_progress
 
 
+def load_dcp_model_only(
+    checkpoint: str | Path,
+    *,
+    model: nn.Module,
+) -> None:
+    """Collectively initialize model weights from a published training DCP."""
+
+    checkpoint_path = Path(checkpoint)
+    checkpoint_manifest(checkpoint_path)
+    model_state = get_model_state_dict(
+        model,
+        options=StateDictOptions(strict=True),
+    )
+    dcp.load(
+        {"model": model_state},
+        checkpoint_id=checkpoint_path,
+    )
+    incompatible = set_model_state_dict(
+        model,
+        model_state,
+        options=StateDictOptions(strict=True),
+    )
+    if incompatible.missing_keys or incompatible.unexpected_keys:
+        raise RuntimeError(
+            "strict model-only DCP load produced incompatible keys: "
+            f"missing={incompatible.missing_keys}, "
+            f"unexpected={incompatible.unexpected_keys}"
+        )
+
+
 def _directory_digest(path: Path) -> str:
     digest = hashlib.sha256()
     files = sorted(
@@ -512,7 +542,13 @@ def _resolve_hf_source(
 ) -> HFCheckpointSource:
     candidate = Path(model_name_or_path)
     if candidate.is_dir():
-        return HFCheckpointSource(candidate.resolve(), revision or _directory_digest(candidate))
+        if (
+            revision is not None
+            and candidate.parent.name == "snapshots"
+            and candidate.name == revision
+        ):
+            return HFCheckpointSource(candidate.resolve(), revision)
+        return HFCheckpointSource(candidate.resolve(), _directory_digest(candidate))
 
     from huggingface_hub import snapshot_download
 
@@ -529,6 +565,21 @@ def _resolve_hf_source(
     return HFCheckpointSource(snapshot, resolved_revision)
 
 
+def resolve_hf_checkpoint_source(
+    model_name_or_path: str | Path,
+    *,
+    revision: str | None = None,
+    local_files_only: bool = False,
+) -> HFCheckpointSource:
+    """Resolve a Hugging Face source to a local path and immutable revision."""
+
+    return _resolve_hf_source(
+        model_name_or_path,
+        revision=revision,
+        local_files_only=local_files_only,
+    )
+
+
 def load_hf_weights_into_shards(
     model: nn.Module,
     model_name_or_path: str | Path,
@@ -539,7 +590,7 @@ def load_hf_weights_into_shards(
 ) -> HFCheckpointSource:
     """Load safetensors directly into an already-FSDP2-sharded meta model."""
 
-    source = _resolve_hf_source(
+    source = resolve_hf_checkpoint_source(
         model_name_or_path,
         revision=revision,
         local_files_only=local_files_only,

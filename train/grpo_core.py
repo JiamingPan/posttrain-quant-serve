@@ -29,6 +29,7 @@ class RolloutConfig:
     temperature: float = 1.0
     top_p: float = 1.0
     top_k: int = 0
+    scale_rewards: RewardScaling = "none"
     rollout_mode: RequestedRolloutMode = "auto"
     teacher_forcing_microbatch_size: int = 1
 
@@ -43,6 +44,8 @@ class RolloutConfig:
             raise ValueError("top_p must be in (0, 1]")
         if self.top_k < 0:
             raise ValueError("top_k must be non-negative")
+        if self.scale_rewards not in {"none", "group", "batch"}:
+            raise ValueError("invalid reward scaling mode")
         if self.teacher_forcing_microbatch_size <= 0:
             raise ValueError("teacher_forcing_microbatch_size must be positive")
 
@@ -367,7 +370,7 @@ def generate_rollout_batch(
     )
     advantages = group_advantages(
         rewards.view(len(prompt_texts), config.num_generations),
-        scale_rewards="none",
+        scale_rewards=config.scale_rewards,
     ).reshape(-1)
     ref_logps = None
     if reference is not None:
