@@ -206,3 +206,43 @@ def test_sampler_resume_returns_exact_next_local_indices() -> None:
 
     assert resumed.next_indices(2) == expected
     assert len(first) == 3
+
+
+def test_sampler_checkpoint_state_is_identical_on_every_rank() -> None:
+    rank_zero = CheckpointableDistributedSampler(16, rank=0, world_size=2, seed=7)
+    rank_one = CheckpointableDistributedSampler(16, rank=1, world_size=2, seed=7)
+    rank_zero.next_indices(2)
+    rank_one.next_indices(2)
+
+    assert rank_zero.state_dict() == rank_one.state_dict()
+
+    restored_rank_one = CheckpointableDistributedSampler(
+        16,
+        rank=1,
+        world_size=2,
+        seed=7,
+    )
+    restored_rank_one.load_state_dict(rank_zero.state_dict())
+    assert restored_rank_one.next_indices(2) == rank_one.next_indices(2)
+
+
+def test_sampler_can_preserve_global_cursor_when_world_size_changes() -> None:
+    original = CheckpointableDistributedSampler(
+        16,
+        rank=0,
+        world_size=2,
+        seed=7,
+        shuffle=False,
+    )
+    original.next_indices(2)
+    resumed = CheckpointableDistributedSampler(
+        16,
+        rank=0,
+        world_size=1,
+        seed=7,
+        shuffle=False,
+    )
+
+    resumed.load_state_dict(original.state_dict(), allow_world_size_change=True)
+
+    assert resumed.next_indices(2) == [4, 5]

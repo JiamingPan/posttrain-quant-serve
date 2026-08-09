@@ -238,7 +238,6 @@ class CheckpointableDistributedSampler:
     def state_dict(self) -> dict[str, int | bool]:
         return {
             "dataset_size": self.dataset_size,
-            "rank": self.rank,
             "world_size": self.world_size,
             "seed": self.seed,
             "shuffle": self.shuffle,
@@ -247,15 +246,20 @@ class CheckpointableDistributedSampler:
             "global_cursor": self.global_cursor,
         }
 
-    def load_state_dict(self, state: Mapping[str, object]) -> None:
+    def load_state_dict(
+        self,
+        state: Mapping[str, object],
+        *,
+        allow_world_size_change: bool = False,
+    ) -> None:
         expected = {
             "dataset_size": self.dataset_size,
-            "rank": self.rank,
-            "world_size": self.world_size,
             "seed": self.seed,
             "shuffle": self.shuffle,
             "drop_last": self.drop_last,
         }
+        if not allow_world_size_change:
+            expected["world_size"] = self.world_size
         actual = {key: state.get(key) for key in expected}
         if actual != expected:
             raise ValueError(f"sampler state does not match this sampler: {actual!r}")
