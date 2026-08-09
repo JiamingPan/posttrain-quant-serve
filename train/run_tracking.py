@@ -109,12 +109,19 @@ def append_run_record(
     return jsonl_path, csv_path
 
 
-def write_run_config(output_dir: str | Path, config: Mapping[str, Any]) -> Path:
+def write_run_config(
+    output_dir: str | Path,
+    config: Mapping[str, Any],
+    *,
+    filename: str = "config.json",
+) -> Path:
     """Write the resolved config once and refuse ambiguous run-directory reuse."""
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    config_path = output_path / "config.json"
+    if Path(filename).name != filename:
+        raise ValueError("run config filename must not contain directory components")
+    config_path = output_path / filename
     rendered = json.dumps(config, sort_keys=True, indent=2) + "\n"
     if config_path.exists():
         if config_path.read_text(encoding="utf-8") != rendered:

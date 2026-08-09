@@ -68,6 +68,17 @@ def test_write_run_config_is_sorted_and_refuses_overwrite_with_different_content
         write_run_config(tmp_path, {"model": "Qwen/Qwen3-8B", "world_size": 4})
 
 
+def test_write_run_config_accepts_the_training_record_filename(tmp_path) -> None:
+    path = write_run_config(
+        tmp_path,
+        {"stage": "sft"},
+        filename="run_config.json",
+    )
+
+    assert path == tmp_path / "run_config.json"
+    assert json.loads(path.read_text()) == {"stage": "sft"}
+
+
 def test_identity_uses_config_hash_and_slurm_job_id(monkeypatch) -> None:
     monkeypatch.setenv("SLURM_JOB_ID", "12345")
 
