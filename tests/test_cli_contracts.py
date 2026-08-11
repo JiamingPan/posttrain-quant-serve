@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from train.fsdp_sft import parse_sft_args
 from train.fsdp_grpo import parse_grpo_args
+from scripts.train_grpo_gsm8k import parse_args as parse_oracle_grpo_args
 
 
 def test_sft_cli_defaults_enable_checkpointing() -> None:
@@ -62,3 +63,22 @@ def test_grpo_cli_exposes_reference_and_rollout_memory_choices() -> None:
     assert args.beta == 0.02
     assert args.rollout_mode == "keep_unsharded"
     assert args.activation_checkpointing is False
+
+
+def test_existing_grpo_oracle_adds_deterministic_controls_without_changing_defaults() -> None:
+    defaults = parse_oracle_grpo_args(["--output_dir", "/run"])
+    controlled = parse_oracle_grpo_args(
+        [
+            "--output_dir",
+            "/run",
+            "--seed",
+            "43",
+            "--run_record",
+            "/records/oracle.json",
+        ]
+    )
+
+    assert defaults.seed == 42
+    assert defaults.run_record is None
+    assert controlled.seed == 43
+    assert controlled.run_record == "/records/oracle.json"
