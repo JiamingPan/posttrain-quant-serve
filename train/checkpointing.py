@@ -580,6 +580,28 @@ def resolve_hf_checkpoint_source(
     )
 
 
+def _missing_tied_parameter_aliases(
+    model: nn.Module,
+    checkpoint_keys: set[str],
+) -> dict[str, str]:
+    names_by_parameter: dict[int, list[str]] = {}
+    for name, parameter in model.named_parameters(remove_duplicate=False):
+        names_by_parameter.setdefault(id(parameter), []).append(name)
+
+    aliases: dict[str, str] = {}
+    for names in names_by_parameter.values():
+        if len(names) < 2:
+            continue
+        saved_names = [name for name in names if name in checkpoint_keys]
+        if not saved_names:
+            continue
+        source_name = saved_names[0]
+        for name in names:
+            if name not in checkpoint_keys:
+                aliases[name] = source_name
+    return aliases
+
+
 def load_hf_weights_into_shards(
     model: nn.Module,
     model_name_or_path: str | Path,
@@ -598,12 +620,20 @@ def load_hf_weights_into_shards(
     reader_type = getattr(dcp, "HuggingFaceStorageReader", None)
     if reader_type is None:
         raise RuntimeError("HuggingFaceStorageReader requires the pinned PyTorch 2.8 runtime")
+    reader = reader_type(path=str(source.path))
+    checkpoint_keys = set(reader.read_metadata().state_dict_metadata)
+    tied_aliases = _missing_tied_parameter_aliases(model, checkpoint_keys)
     model.to_empty(device=device)
     model_state = get_model_state_dict(
         model,
         options=StateDictOptions(strict=True),
     )
-    dcp.load(model_state, storage_reader=reader_type(path=str(source.path)))
+    load_state = {
+        name: value for name, value in model_state.items() if name not in tied_aliases
+    }
+    dcp.load(load_state, storage_reader=reader)
+    for alias_name, source_name in tied_aliases.items():
+        model_state[alias_name] = load_state[source_name]
     incompatible = set_model_state_dict(
         model,
         model_state,

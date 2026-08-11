@@ -11,6 +11,7 @@ from train.fsdp_utils import (
     apply_qwen_activation_checkpointing,
     clip_global_grad_norm_,
     fsdp_modules,
+    fully_shard_qwen,
     rollout_parameter_state,
 )
 
@@ -88,6 +89,27 @@ def test_rollout_state_rejects_unknown_mode_before_mutating_model() -> None:
 def test_fsdp_settings_reject_non_bfloat16_compute() -> None:
     with pytest.raises(ValueError, match="param_dtype.*bfloat16"):
         FSDPSettings(param_dtype=torch.float32)
+
+
+def test_tied_embedding_and_lm_head_share_one_fsdp_group(monkeypatch) -> None:
+    model = QwenShapedModel()
+    model.lm_head.weight = model.model.embed_tokens.weight
+    sharded_modules: list[nn.Module] = []
+
+    monkeypatch.setattr(
+        "train.fsdp_utils.fully_shard",
+        lambda module, **_kwargs: sharded_modules.append(module),
+    )
+
+    fully_shard_qwen(
+        model,
+        SimpleNamespace(mesh=object()),
+        FSDPSettings(),
+    )
+
+    assert model.model.embed_tokens not in sharded_modules
+    assert model.lm_head not in sharded_modules
+    assert sharded_modules[-1] is model
 
 
 @pytest.mark.cuda

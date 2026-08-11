@@ -160,14 +160,19 @@ def fully_shard_qwen(
         "reshard_after_forward": settings.reshard_after_forward,
         "mp_policy": policy,
     }
+    tied_embeddings = embedding.weight is lm_head.weight
     groups: list[str] = []
-    fully_shard(embedding, **shard_kwargs)
-    groups.append("embed_tokens")
+    if not tied_embeddings:
+        fully_shard(embedding, **shard_kwargs)
+        groups.append("embed_tokens")
     for index, block in enumerate(layers):
         fully_shard(block, **shard_kwargs)
         groups.append(f"layer.{index}")
-    fully_shard(lm_head, **shard_kwargs)
-    groups.append("lm_head")
+    if not tied_embeddings:
+        fully_shard(lm_head, **shard_kwargs)
+        groups.append("lm_head")
+    # FSDP2 shared parameters must be owned by one fully_shard instance. For
+    # tied models, the root group explicitly owns both embedding aliases.
     fully_shard(model, **shard_kwargs)
     groups.append("root")
     return groups

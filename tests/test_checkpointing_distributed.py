@@ -8,11 +8,14 @@ import pytest
 import torch
 from torch import nn
 
+import train.checkpointing as checkpointing
 from train.checkpointing import (
+    HFCheckpointSource,
     TrainProgress,
     checkpoint_manifest,
     load_dcp_checkpoint,
     load_dcp_model_only,
+    load_hf_weights_into_shards,
     resolve_hf_checkpoint_source,
     resolve_resume_checkpoint,
     save_dcp_checkpoint,
@@ -96,6 +99,59 @@ def test_resolved_hf_cache_snapshot_preserves_its_commit_revision(tmp_path) -> N
     source = resolve_hf_checkpoint_source(snapshot, revision=commit)
 
     assert source.revision == commit
+
+
+def test_hf_loader_restores_a_missing_tied_lm_head_from_embeddings(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class TiedCausalLM(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.model = nn.Module()
+            self.model.embed_tokens = nn.Embedding(4, 3)
+            self.lm_head = nn.Linear(3, 4, bias=False)
+            self.lm_head.weight = self.model.embed_tokens.weight
+
+    class EmbeddingOnlyReader:
+        def __init__(self, *, path: str) -> None:
+            self.path = path
+
+        def read_metadata(self):
+            return type(
+                "Metadata",
+                (),
+                {"state_dict_metadata": {"model.embed_tokens.weight": object()}},
+            )()
+
+    def load_embedding_only(state_dict, **_kwargs) -> None:
+        assert set(state_dict) == {"model.embed_tokens.weight"}
+        state_dict["model.embed_tokens.weight"].fill_(7)
+
+    source = HFCheckpointSource(tmp_path, "immutable-revision")
+    monkeypatch.setattr(
+        checkpointing,
+        "resolve_hf_checkpoint_source",
+        lambda *_args, **_kwargs: source,
+    )
+    monkeypatch.setattr(
+        checkpointing.dcp,
+        "HuggingFaceStorageReader",
+        EmbeddingOnlyReader,
+        raising=False,
+    )
+    monkeypatch.setattr(checkpointing.dcp, "load", load_embedding_only)
+    model = TiedCausalLM()
+
+    resolved = load_hf_weights_into_shards(
+        model,
+        tmp_path,
+        device=torch.device("cpu"),
+    )
+
+    assert resolved == source
+    assert torch.equal(model.model.embed_tokens.weight, torch.full((4, 3), 7.0))
+    assert model.lm_head.weight is model.model.embed_tokens.weight
 
 
 def test_manifest_validates_directory_step(tmp_path) -> None:
