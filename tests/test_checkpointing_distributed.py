@@ -141,7 +141,8 @@ def test_hf_loader_restores_a_missing_tied_lm_head_from_embeddings(
         raising=False,
     )
     monkeypatch.setattr(checkpointing.dcp, "load", load_embedding_only)
-    model = TiedCausalLM()
+    with torch.device("meta"):
+        model = TiedCausalLM()
 
     resolved = load_hf_weights_into_shards(
         model,

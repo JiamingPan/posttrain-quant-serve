@@ -602,6 +602,16 @@ def _missing_tied_parameter_aliases(
     return aliases
 
 
+def _restore_parameter_aliases(
+    model: nn.Module,
+    aliases: Mapping[str, str],
+) -> None:
+    for alias_name, source_name in aliases.items():
+        parent_name, _, parameter_name = alias_name.rpartition(".")
+        parent = model.get_submodule(parent_name) if parent_name else model
+        setattr(parent, parameter_name, model.get_parameter(source_name))
+
+
 def load_hf_weights_into_shards(
     model: nn.Module,
     model_name_or_path: str | Path,
@@ -624,6 +634,9 @@ def load_hf_weights_into_shards(
     checkpoint_keys = set(reader.read_metadata().state_dict_metadata)
     tied_aliases = _missing_tied_parameter_aliases(model, checkpoint_keys)
     model.to_empty(device=device)
+    # Materializing meta parameters replaces each registered alias separately,
+    # so restore sharing before DCP resets FSDP's managed sharded parameter.
+    _restore_parameter_aliases(model, tied_aliases)
     model_state = get_model_state_dict(
         model,
         options=StateDictOptions(strict=True),
