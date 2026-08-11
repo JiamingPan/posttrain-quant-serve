@@ -172,11 +172,13 @@ def write_oracle_run_record(
     return output
 
 
-def _mapped_dataset_digest(dataset: Any) -> str:
+def _raw_dataset_digest(dataset: Any) -> str:
+    """Match the FSDP GRPO digest over immutable question/answer rows."""
+
     digest = hashlib.sha256()
     for index in range(len(dataset)):
         row = dataset[index]
-        digest.update(str(row["prompt"]).encode())
+        digest.update(str(row["question"]).encode())
         digest.update(b"\0")
         digest.update(str(row["answer"]).encode())
         digest.update(b"\0")
@@ -232,9 +234,15 @@ def main() -> None:
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
     if args.run_record is not None:
+        from datasets import load_dataset
         from train.checkpointing import resolve_hf_checkpoint_source
 
         model_source = resolve_hf_checkpoint_source(args.model)
+        source_dataset = load_dataset("openai/gsm8k", "main", split=args.split)
+        if args.dataset_limit is not None:
+            source_dataset = source_dataset.select(
+                range(min(args.dataset_limit, len(source_dataset)))
+            )
         resolved_training_config = (
             training_args.to_dict()
             if hasattr(training_args, "to_dict")
@@ -245,7 +253,7 @@ def main() -> None:
             args=args,
             resolved_config=resolved_training_config,
             log_history=[dict(row) for row in trainer.state.log_history],
-            dataset_digest=_mapped_dataset_digest(train_dataset),
+            dataset_digest=_raw_dataset_digest(source_dataset),
             model_digest=model_source.revision,
         )
 

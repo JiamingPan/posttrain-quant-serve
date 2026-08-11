@@ -105,6 +105,27 @@ def test_passing_gate_contains_traceable_source_records(gate: str) -> None:
     assert all(len(source["sha256"]) == 64 for source in record["source_records"])
 
 
+def test_gate_retains_additional_resume_and_state_probe_evidence() -> None:
+    comparisons = [_comparison(seed, gate="grpo") for seed in (41, 42, 43)]
+    comparisons[0]["evidence_records"] = [
+        {
+            "implementation": "fsdp2_resume",
+            "path": "resume-41.jsonl",
+            "sha256": "a" * 64,
+        }
+    ]
+
+    record = build_gate_record("grpo", comparisons)
+
+    assert len(record["source_records"]) == 7
+    assert {
+        "seed": 41,
+        "implementation": "fsdp2_resume",
+        "path": "resume-41.jsonl",
+        "sha256": "a" * 64,
+    } in record["source_records"]
+
+
 def test_gate_writes_only_after_all_comparisons_pass(tmp_path) -> None:
     comparisons_path = tmp_path / "comparisons.json"
     comparisons_path.write_text(

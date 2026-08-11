@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from scripts.train_grpo_gsm8k import (
+    _raw_dataset_digest,
     build_training_config_kwargs,
     parse_args,
     write_oracle_run_record,
@@ -54,3 +55,14 @@ def test_oracle_record_is_opt_in(tmp_path) -> None:
         model_digest="model",
     ) is None
     assert list(tmp_path.iterdir()) == []
+
+
+def test_oracle_source_digest_matches_raw_question_answer_rows() -> None:
+    rows = [
+        {"question": "2+2?", "answer": "work #### 4"},
+        {"question": "3+3?", "answer": "work #### 6"},
+    ]
+
+    assert _raw_dataset_digest(rows) == (
+        "d24301521cd065cd989ee850f935589578e769ba0249e480ab0baf1bf9cf89dc"
+    )
