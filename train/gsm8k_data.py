@@ -27,6 +27,17 @@ class TokenBatch:
     supervised_tokens: int
 
 
+def _chat_template_input_ids(encoded: Any) -> list[int]:
+    if isinstance(encoded, Mapping):
+        encoded = encoded["input_ids"]
+    if isinstance(encoded, (str, bytes)):
+        raise TypeError("tokenized chat template returned text instead of token IDs")
+    input_ids = list(encoded)
+    if not all(isinstance(token_id, int) for token_id in input_ids):
+        raise TypeError("tokenized chat template returned non-integer token IDs")
+    return input_ids
+
+
 def build_sft_feature(
     tokenizer: Any,
     question: str,
@@ -40,14 +51,14 @@ def build_sft_feature(
         raise ValueError("max_length must be positive")
     user = [{"role": "user", "content": gsm8k_user_text(question)}]
     conversation = [*user, {"role": "assistant", "content": answer}]
-    prompt_ids = list(
+    prompt_ids = _chat_template_input_ids(
         tokenizer.apply_chat_template(
             user,
             tokenize=True,
             add_generation_prompt=True,
         )
     )
-    full_ids = list(
+    full_ids = _chat_template_input_ids(
         tokenizer.apply_chat_template(
             conversation,
             tokenize=True,

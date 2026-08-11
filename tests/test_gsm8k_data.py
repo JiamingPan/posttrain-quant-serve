@@ -47,6 +47,30 @@ class FakeQwenTokenizer:
         return token_ids
 
 
+class TransformersV5Tokenizer(FakeQwenTokenizer):
+    """Mirror the BatchEncoding return adopted by Transformers v5."""
+
+    def apply_chat_template(
+        self,
+        messages,
+        *,
+        tokenize: bool,
+        add_generation_prompt: bool,
+        return_dict: bool = True,
+    ):
+        result = super().apply_chat_template(
+            messages,
+            tokenize=tokenize,
+            add_generation_prompt=add_generation_prompt,
+        )
+        if not tokenize:
+            return result
+        return {
+            "input_ids": result,
+            "attention_mask": [1] * len(result),
+        }
+
+
 def test_only_assistant_suffix_is_supervised() -> None:
     feature = build_sft_feature(
         FakeQwenTokenizer(),
@@ -58,6 +82,18 @@ def test_only_assistant_suffix_is_supervised() -> None:
     first_label = next(i for i, value in enumerate(feature.labels) if value != -100)
     assert feature.labels[:first_label] == [-100] * first_label
     assert feature.labels[first_label:] == feature.input_ids[first_label:]
+
+
+def test_sft_feature_extracts_ids_from_transformers_v5_batch_encoding() -> None:
+    feature = build_sft_feature(
+        TransformersV5Tokenizer(),
+        "2+2?",
+        "#### 4",
+        max_length=256,
+    )
+
+    assert feature.input_ids[0] == 10
+    assert all(isinstance(token_id, int) for token_id in feature.input_ids)
 
 
 def test_non_prefix_preserving_chat_template_is_rejected() -> None:
