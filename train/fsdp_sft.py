@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import random
 import time
-from typing import Any, Literal, Protocol, Sequence
+from typing import Any, Callable, Literal, Protocol, Sequence
 
 import numpy as np
 import torch
@@ -249,6 +249,7 @@ def sft_optimizer_step(
     ctx: StepContext,
     max_grad_norm: float,
     accumulation_sync: AccumulationSync,
+    before_optimizer_step: Callable[[nn.Module], None] | None = None,
 ) -> SFTStepMetrics:
     """Run one token-normalized optimizer step on sharded or plain parameters."""
 
@@ -314,6 +315,8 @@ def sft_optimizer_step(
         if accumulation_sync == "no_sync":
             sync_setter(True)
 
+    if before_optimizer_step is not None:
+        before_optimizer_step(model)
     preclip_norm = clip_global_grad_norm_(model, max_grad_norm)
     preclip_norm_value = _scalar_tensor_value(preclip_norm)
     optimizer.step()

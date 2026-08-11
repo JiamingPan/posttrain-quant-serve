@@ -151,6 +151,36 @@ def test_no_sync_rejects_a_plain_model() -> None:
         )
 
 
+def test_step_observer_sees_gradients_before_optimizer_zeroing() -> None:
+    model = TinyCausalLM()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1.0)
+    observed: list[int] = []
+
+    def observe_gradients(observed_model: nn.Module) -> None:
+        observed.append(
+            sum(
+                parameter.grad.numel()
+                for parameter in observed_model.parameters()
+                if parameter.grad is not None
+            )
+        )
+
+    sft_optimizer_step(
+        model,
+        optimizer,
+        scheduler,
+        [_batch([[1, 2, 3]], [[-100, 2, 3]])],
+        ctx=SimpleNamespace(world_size=1, device=torch.device("cpu")),
+        max_grad_norm=1.0,
+        accumulation_sync="reduce_scatter",
+        before_optimizer_step=observe_gradients,
+    )
+
+    assert observed == [256]
+    assert all(parameter.grad is None for parameter in model.parameters())
+
+
 def test_prepare_step_batches_consumes_exact_sampler_indices() -> None:
     features = [
         SFTFeature(input_ids=[index, index + 1], labels=[-100, index + 1])

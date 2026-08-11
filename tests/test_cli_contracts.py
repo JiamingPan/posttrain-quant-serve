@@ -3,6 +3,7 @@ from __future__ import annotations
 from train.fsdp_sft import parse_sft_args
 from train.fsdp_grpo import parse_grpo_args
 from scripts.train_grpo_gsm8k import parse_args as parse_oracle_grpo_args
+from bench.scaling import parse_scaling_args
 
 
 def test_sft_cli_defaults_enable_checkpointing() -> None:
@@ -82,3 +83,19 @@ def test_existing_grpo_oracle_adds_deterministic_controls_without_changing_defau
     assert defaults.run_record is None
     assert controlled.seed == 43
     assert controlled.run_record == "/records/oracle.json"
+
+
+def test_scaling_worker_defaults_match_the_fixed_global_batch_recipe() -> None:
+    args = parse_scaling_args(["--worker", "--output_dir", "/tmp/scaling"])
+
+    assert args.worker is True
+    assert args.world_sizes == (1, 2, 4, 8)
+    assert args.model == "Qwen/Qwen3-8B"
+    assert args.global_batch_size == 8
+    assert args.sequence_length == 2048
+    assert args.micro_batch_size == 1
+    assert args.gradient_accumulation_steps is None
+    assert args.warmup_steps == 3
+    assert args.measure_steps == 10
+    assert args.profile_steps == 3
+    assert args.activation_checkpointing is True
