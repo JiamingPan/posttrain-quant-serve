@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import argparse
+from dataclasses import asdict
 from dataclasses import dataclass
+import json
+from typing import Any, Sequence
 
 
 GIB = 1024**3
 BF16_BYTES = 2
+QWEN3_8B_PARAMETERS = 8_190_735_360
 SUPPORTED_WORLD_SIZES = {1, 2, 4, 8}
 
 
@@ -173,3 +178,182 @@ def assert_memory_fits(
             f"capacity_gib={capacity_gib:.2f} exceeds "
             f"the {utilization_limit:.0%} utilization limit"
         )
+
+
+def _parse_training_memory_args(
+    stage: str,
+    stage_args: Sequence[str],
+) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--model", default="Qwen/Qwen3-8B")
+    parser.add_argument(
+        "--resident_precision",
+        choices=("bf16", "fp32"),
+        default="bf16",
+    )
+    checkpointing = parser.add_mutually_exclusive_group()
+    checkpointing.add_argument(
+        "--activation_checkpointing",
+        dest="activation_checkpointing",
+        action="store_true",
+    )
+    checkpointing.add_argument(
+        "--no_activation_checkpointing",
+        dest="activation_checkpointing",
+        action="store_false",
+    )
+    parser.set_defaults(activation_checkpointing=True)
+    if stage == "grpo":
+        parser.add_argument("--beta", type=float, default=0.0)
+        parser.add_argument(
+            "--rollout_mode",
+            choices=("auto", "reshard", "keep_unsharded"),
+            default="auto",
+        )
+    parsed, _ = parser.parse_known_args(tuple(stage_args))
+    return parsed
+
+
+def preflight_launch(
+    *,
+    stage: str,
+    world_size: int,
+    stage_args: Sequence[str],
+    device_name: str,
+    capacity_gib: float,
+) -> dict[str, Any]:
+    """Evaluate a launcher memory check without loading model weights."""
+
+    if stage not in {"sft", "grpo"}:
+        raise ValueError("launch memory preflight supports only sft or grpo")
+    _validate_inputs(QWEN3_8B_PARAMETERS, world_size)
+    if not device_name:
+        raise ValueError("device_name must not be empty")
+    if capacity_gib <= 0:
+        raise ValueError("capacity_gib must be positive")
+
+    parsed = _parse_training_memory_args(stage, stage_args)
+    base = {
+        "capacity_gib": capacity_gib,
+        "device_name": device_name,
+        "model": parsed.model,
+        "stage": stage,
+        "status": "skipped_unknown_model_size",
+        "world_size": world_size,
+    }
+    if parsed.model != "Qwen/Qwen3-8B":
+        return base
+    if parsed.resident_precision == "fp32" and world_size == 1:
+        raise ValueError("the fp32-resident Qwen3-8B profile is rejected at world size one")
+    if world_size == 1 and (
+        "A100" not in device_name.upper() or capacity_gib < 79.0
+    ):
+        raise ValueError(
+            "the Qwen3-8B world-size-1 point requires an A100 80 GiB GPU"
+        )
+
+    warning = None
+    if world_size == 2 and capacity_gib < 50.0:
+        warning = (
+            "world-size-2 has a narrow memory margin on A40/40-48 GiB devices; "
+            "keep activation checkpointing enabled"
+        )
+
+    if stage == "sft":
+        prediction = predict_sft_peak(
+            QWEN3_8B_PARAMETERS,
+            world_size,
+            checkpointing=parsed.activation_checkpointing,
+        )
+        assert_memory_fits(
+            prediction,
+            capacity_gib=capacity_gib,
+            model_name=parsed.model,
+            state_precision=parsed.resident_precision,
+        )
+        result = {
+            **base,
+            "activation_checkpointing": parsed.activation_checkpointing,
+            "checkpointing": parsed.activation_checkpointing,
+            "prediction": asdict(prediction),
+            "predicted_allocated_gib": prediction.allocated_gib,
+            "predicted_reserved_gib": prediction.reserved_gib,
+            "resident_precision": parsed.resident_precision,
+            "status": "fit",
+        }
+    else:
+        keep_prediction = predict_grpo_peak(
+            QWEN3_8B_PARAMETERS,
+            world_size=world_size,
+            beta=parsed.beta,
+            rollout_mode="keep_unsharded",
+        )
+        if parsed.rollout_mode == "auto":
+            rollout_mode = (
+                "keep_unsharded"
+                if keep_prediction.reserved_gib <= capacity_gib * 0.95
+                else "reshard"
+            )
+        else:
+            rollout_mode = parsed.rollout_mode
+        prediction = predict_grpo_peak(
+            QWEN3_8B_PARAMETERS,
+            world_size=world_size,
+            beta=parsed.beta,
+            rollout_mode=rollout_mode,
+        )
+        assert_memory_fits(
+            prediction,
+            capacity_gib=capacity_gib,
+            model_name=parsed.model,
+            state_precision=parsed.resident_precision,
+        )
+        result = {
+            **base,
+            "activation_checkpointing": parsed.activation_checkpointing,
+            "beta": parsed.beta,
+            "keep_unsharded_reserved_gib": keep_prediction.reserved_gib,
+            "prediction": asdict(prediction),
+            "predicted_reserved_gib": prediction.reserved_gib,
+            "resident_precision": parsed.resident_precision,
+            "rollout_mode": rollout_mode,
+            "status": "fit",
+        }
+    if warning is not None:
+        result["warning"] = warning
+    return result
+
+
+def _build_preflight_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Qwen3 FSDP2 launch memory preflight")
+    parser.add_argument("--preflight-stage", choices=("sft", "grpo"), required=True)
+    parser.add_argument("--world-size", type=int, required=True)
+    parser.add_argument("stage_args", nargs=argparse.REMAINDER)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = _build_preflight_parser().parse_args(argv)
+    stage_args = tuple(args.stage_args)
+    if stage_args[:1] == ("--",):
+        stage_args = stage_args[1:]
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("CUDA is not available for launch memory preflight")
+    properties = torch.cuda.get_device_properties(0)
+    result = preflight_launch(
+        stage=args.preflight_stage,
+        world_size=args.world_size,
+        stage_args=stage_args,
+        device_name=properties.name,
+        capacity_gib=properties.total_memory / GIB,
+    )
+    print(json.dumps(result, sort_keys=True, indent=2), flush=True)
+    if "warning" in result:
+        print(f"WARNING: {result['warning']}", flush=True)
+
+
+if __name__ == "__main__":
+    main()

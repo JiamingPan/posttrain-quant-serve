@@ -2,6 +2,7 @@ import pytest
 
 from train.memory_model import (
     assert_memory_fits,
+    preflight_launch,
     predict_grpo_peak,
     predict_sft_peak,
 )
@@ -93,3 +94,84 @@ def test_memory_preflight_accepts_a_prediction_with_headroom() -> None:
         model_name="Qwen/Qwen3-8B",
         state_precision="bf16",
     )
+
+
+def test_launch_preflight_honors_the_sft_checkpointing_ablation() -> None:
+    result = preflight_launch(
+        stage="sft",
+        world_size=4,
+        stage_args=("--model", "Qwen/Qwen3-8B", "--no_activation_checkpointing"),
+        device_name="NVIDIA A100-SXM4-80GB",
+        capacity_gib=79.2,
+    )
+
+    assert result["status"] == "fit"
+    assert result["checkpointing"] is False
+    assert result["predicted_reserved_gib"] == pytest.approx(35.60, abs=0.03)
+
+
+def test_launch_preflight_rejects_non_a100_world_size_one_qwen3() -> None:
+    with pytest.raises(ValueError, match="world-size-1.*A100 80"):
+        preflight_launch(
+            stage="sft",
+            world_size=1,
+            stage_args=("--model", "Qwen/Qwen3-8B"),
+            device_name="NVIDIA A40",
+            capacity_gib=44.4,
+        )
+
+
+def test_launch_preflight_rejects_fp32_resident_world_size_one() -> None:
+    with pytest.raises(ValueError, match="fp32-resident.*world size one"):
+        preflight_launch(
+            stage="sft",
+            world_size=1,
+            stage_args=(
+                "--model",
+                "Qwen/Qwen3-8B",
+                "--resident_precision",
+                "fp32",
+            ),
+            device_name="NVIDIA A100-SXM4-80GB",
+            capacity_gib=79.2,
+        )
+
+
+def test_grpo_auto_preflight_selects_reshard_when_full_policy_is_unsafe() -> None:
+    result = preflight_launch(
+        stage="grpo",
+        world_size=4,
+        stage_args=(
+            "--model",
+            "Qwen/Qwen3-8B",
+            "--rollout_mode",
+            "auto",
+            "--beta",
+            "0.0",
+        ),
+        device_name="NVIDIA A40",
+        capacity_gib=26.0,
+    )
+
+    assert result["status"] == "fit"
+    assert result["rollout_mode"] == "reshard"
+    assert result["predicted_reserved_gib"] < 26.0 * 0.95
+
+
+def test_launch_preflight_skips_unknown_model_sizes_without_guessing() -> None:
+    result = preflight_launch(
+        stage="sft",
+        world_size=1,
+        stage_args=("--model", "/models/tiny-qwen"),
+        device_name="NVIDIA A40",
+        capacity_gib=44.4,
+    )
+
+    assert result == {
+        "capacity_gib": 44.4,
+        "device_name": "NVIDIA A40",
+        "model": "/models/tiny-qwen",
+        "stage": "sft",
+        "status": "skipped_unknown_model_size",
+        "world_size": 1,
+    }
