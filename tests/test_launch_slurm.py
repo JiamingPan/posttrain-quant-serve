@@ -111,6 +111,60 @@ def test_scaling_controller_uses_python_and_requires_the_full_eight_gpu_allocati
     assert "requires --gpus 8" in invalid.stderr
 
 
+def test_scaling_pilot_controller_accepts_a_two_gpu_allocation() -> None:
+    result = run_launcher(
+        "--stage",
+        "scaling",
+        "--gpus",
+        "2",
+        "--dry-run",
+        "--",
+        "--pilot",
+        "--world_sizes",
+        "1,2",
+        "--output_dir",
+        "/tmp/a40-pilot",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "python -m bench.scaling" in result.stdout
+    assert "torchrun" not in result.stdout
+    assert "stage_arg[0]=--pilot" in result.stdout
+    assert "stage_arg[2]=1,2" in result.stdout
+
+
+def test_scaling_controller_rejects_two_gpus_without_literal_pilot_flag() -> None:
+    missing = run_launcher(
+        "--stage",
+        "scaling",
+        "--gpus",
+        "2",
+        "--dry-run",
+        "--",
+        "--world_sizes",
+        "1,2",
+        "--output_dir",
+        "/tmp/not-a-pilot",
+    )
+    lookalike = run_launcher(
+        "--stage",
+        "scaling",
+        "--gpus",
+        "2",
+        "--dry-run",
+        "--",
+        "--pilot=true",
+        "--world_sizes",
+        "1,2",
+        "--output_dir",
+        "/tmp/not-a-pilot",
+    )
+
+    for result in (missing, lookalike):
+        assert result.returncode != 0
+        assert "requires --gpus 8 unless --pilot is explicit" in result.stderr
+
+
 @pytest.mark.parametrize("gpus", ["0", "3", "16", "eight"])
 def test_launcher_rejects_unsupported_gpu_counts(gpus: str) -> None:
     result = run_launcher("--stage", "sft", "--gpus", gpus, "--dry-run")

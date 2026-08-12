@@ -14,7 +14,7 @@ Stages:
   correctness     bench.correctness under torchrun
   consolidate     scripts.consolidate_dcp under torchrun
   scaling-worker  one bench.scaling worker under torchrun
-  scaling         the 1/2/4/8 bench.scaling controller (requires 8 GPUs)
+  scaling         bench.scaling controller (full sweep requires 8 GPUs)
 
 Options:
   --stage NAME
@@ -80,6 +80,28 @@ done
 SLURM_NODE_COUNT="${SLURM_NNODES:-1}"
 [[ "$SLURM_NODE_COUNT" == "1" ]] || fail "this track requires a single Slurm node"
 
+has_stage_argument() {
+  local requested="$1"
+  local argument
+  for argument in "${STAGE_ARGS[@]}"; do
+    if [[ "$argument" == "$requested" || "$argument" == "$requested="* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+has_exact_stage_argument() {
+  local requested="$1"
+  local argument
+  for argument in "${STAGE_ARGS[@]}"; do
+    if [[ "$argument" == "$requested" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 MODULE=""
 CONTROLLER=0
 case "$STAGE" in
@@ -100,7 +122,10 @@ case "$STAGE" in
     ;;
   scaling)
     CONTROLLER=1
-    [[ "$GPUS" == "8" ]] || fail "the complete scaling controller requires --gpus 8"
+    if ! has_exact_stage_argument "--pilot"; then
+      [[ "$GPUS" == "8" ]] || fail \
+        "the complete scaling controller requires --gpus 8 unless --pilot is explicit"
+    fi
     ;;
   *)
     fail "unknown stage: $STAGE"
@@ -128,17 +153,6 @@ export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING="${TORCH_NCCL_ASYNC_ERROR_HANDLING:-1}"
 export TORCH_NCCL_BLOCKING_WAIT="${TORCH_NCCL_BLOCKING_WAIT:-1}"
 export PQS_DISTRIBUTED_TIMEOUT_SECONDS="$DIST_TIMEOUT_SECONDS"
-
-has_stage_argument() {
-  local requested="$1"
-  local argument
-  for argument in "${STAGE_ARGS[@]}"; do
-    if [[ "$argument" == "$requested" || "$argument" == "$requested="* ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
 
 case "$STAGE" in
   sft|grpo|correctness|consolidate|scaling-worker|scaling)
