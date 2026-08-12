@@ -152,9 +152,12 @@ def _valid_record(world_size: int) -> dict[str, object]:
         "communication_active_fraction": 0.2,
         "communication_exposed_fraction": 0.1,
         "global_batch_size": 8,
+        "git_dirty": False,
         "gpu_name": "NVIDIA A100-SXM4-80GB",
         "measure_steps": 10,
         "mfu": 0.25,
+        "model": "Qwen/Qwen2.5-0.5B-Instruct",
+        "model_revision": "0123456789abcdef0123456789abcdef01234567",
         "rank_memory": [
             {
                 "peak_allocated_bytes": 1_000 + rank,
@@ -255,6 +258,33 @@ def test_pilot_validation_requires_every_measured_step_duration() -> None:
     record["rank_memory"][0]["step_seconds"] = [1.0] * 9
 
     with pytest.raises(ValueError, match="measured step durations"):
+        scaling_module.validate_pilot_scaling_records(
+            [record],
+            expected_world_sizes=(2,),
+        )
+
+
+def test_pilot_validation_rejects_a_dirty_record() -> None:
+    record = _valid_record(2)
+    record["benchmark_mode"] = "pilot"
+    record["scaling_efficiency"] = None
+    record["git_dirty"] = True
+
+    with pytest.raises(ValueError, match="clean Git worktree"):
+        scaling_module.validate_pilot_scaling_records(
+            [record],
+            expected_world_sizes=(2,),
+        )
+
+
+def test_pilot_validation_rejects_an_unpinned_qwen3_record() -> None:
+    record = _valid_record(2)
+    record["benchmark_mode"] = "pilot"
+    record["scaling_efficiency"] = None
+    record["model"] = "Qwen/Qwen3-8B"
+    record["model_revision"] = "main"
+
+    with pytest.raises(ValueError, match="immutable 40-character"):
         scaling_module.validate_pilot_scaling_records(
             [record],
             expected_world_sizes=(2,),

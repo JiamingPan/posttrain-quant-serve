@@ -1520,6 +1520,16 @@ def validate_pilot_scaling_records(
         expected_world_sizes=expected_world_sizes,
         benchmark_mode="pilot",
     )
+    for record in records:
+        if record["git_dirty"] is not False:
+            raise ValueError("pilot evidence requires a clean Git worktree")
+        if record["model"] == "Qwen/Qwen3-8B" and not re.fullmatch(
+            r"[0-9a-fA-F]{40}",
+            str(record["model_revision"]),
+        ):
+            raise ValueError(
+                "Qwen3-8B pilot evidence requires an immutable 40-character revision"
+            )
     has_baseline = 1 in expected_world_sizes
     for record in records:
         efficiency = record["scaling_efficiency"]

@@ -28,9 +28,12 @@ def _pilot_record(world_size: int) -> dict[str, object]:
         "communication_active_fraction": 0.2,
         "communication_exposed_fraction": 0.1,
         "global_batch_size": 8,
+        "git_dirty": False,
         "gpu_name": "NVIDIA A40",
         "measure_steps": 10,
         "mfu": 0.25,
+        "model": "Qwen/Qwen2.5-0.5B-Instruct",
+        "model_revision": IMMUTABLE_REVISION,
         "rank_memory": [
             {
                 "peak_allocated_bytes": 1_000 + rank,
