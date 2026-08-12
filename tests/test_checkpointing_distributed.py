@@ -54,6 +54,34 @@ def _publish_fake_checkpoint(root, step: int, *, complete: bool = True):
     return checkpoint
 
 
+class _RotaryConfig:
+    def __init__(self, values: tuple[float, ...]) -> None:
+        self.values = values
+
+
+class _QwenRotaryEmbedding(nn.Module):
+    def __init__(self, config: _RotaryConfig, device=None) -> None:
+        super().__init__()
+        self.config = config
+        inv_freq = torch.tensor(config.values, device=device)
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+        # Transformers 4.x keeps this reset value as an unregistered alias.
+        self.original_inv_freq = self.inv_freq
+
+
+class _QwenLikeModel(nn.Module):
+    def __init__(
+        self,
+        *,
+        weight: tuple[float, ...],
+        inv_freq: tuple[float, ...],
+    ) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.tensor(weight))
+        self.model = nn.Module()
+        self.model.rotary_emb = _QwenRotaryEmbedding(_RotaryConfig(inv_freq))
+
+
 def test_latest_resume_ignores_partial_directories_and_sorts_numeric_steps(tmp_path) -> None:
     _publish_fake_checkpoint(tmp_path, 2)
     expected = _publish_fake_checkpoint(tmp_path, 10)
@@ -155,6 +183,57 @@ def test_hf_loader_restores_a_missing_tied_lm_head_from_embeddings(
     assert model.lm_head.weight is model.model.embed_tokens.weight
 
 
+def test_hf_loader_rebuilds_qwen_rotary_buffers_after_meta_materialization(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class WeightOnlyReader:
+        def __init__(self, *, path: str) -> None:
+            self.path = path
+
+        def read_metadata(self):
+            return type(
+                "Metadata",
+                (),
+                {"state_dict_metadata": {"weight": object()}},
+            )()
+
+    def load_weight_only(state_dict, **_kwargs) -> None:
+        state_dict["weight"].fill_(7)
+
+    source = HFCheckpointSource(tmp_path, "immutable-revision")
+    monkeypatch.setattr(
+        checkpointing,
+        "resolve_hf_checkpoint_source",
+        lambda *_args, **_kwargs: source,
+    )
+    monkeypatch.setattr(
+        checkpointing.dcp,
+        "HuggingFaceStorageReader",
+        WeightOnlyReader,
+        raising=False,
+    )
+    monkeypatch.setattr(checkpointing.dcp, "load", load_weight_only)
+    with torch.device("meta"):
+        model = _QwenLikeModel(
+            weight=(1.0, 1.0),
+            inv_freq=(1.0, 0.25, 0.0625),
+        )
+
+    load_hf_weights_into_shards(
+        model,
+        tmp_path,
+        device=torch.device("cpu"),
+    )
+
+    rotary = model.model.rotary_emb
+    expected = torch.tensor([1.0, 0.25, 0.0625])
+    torch.testing.assert_close(rotary.inv_freq, expected)
+    assert rotary.original_inv_freq.device.type == "cpu"
+    torch.testing.assert_close(rotary.original_inv_freq, expected)
+    assert rotary.original_inv_freq is rotary.inv_freq
+
+
 def test_manifest_validates_directory_step(tmp_path) -> None:
     checkpoint = _publish_fake_checkpoint(tmp_path, 7)
     payload = _manifest(8)
@@ -234,6 +313,80 @@ def test_single_process_dcp_restores_model_optimizer_scheduler_sampler_and_rng(t
 
 @pytest.mark.filterwarnings("ignore:torch.distributed is unavailable or uninitialized")
 @pytest.mark.filterwarnings("ignore:TypedStorage is deprecated")
+def test_full_dcp_resume_rebuilds_qwen_rotary_buffers(tmp_path) -> None:
+    config = {"stage": "sft", "world_size": 1}
+    digests = {"model": "base", "data": "fixed"}
+    source = _QwenLikeModel(
+        weight=(2.0, 3.0),
+        inv_freq=(1.0, 0.2, 0.04),
+    )
+    source_optimizer = torch.optim.AdamW(source.parameters(), lr=0.01)
+    source_scheduler = torch.optim.lr_scheduler.LambdaLR(
+        source_optimizer,
+        lambda _: 1.0,
+    )
+    source_sampler = CheckpointableDistributedSampler(
+        8,
+        rank=0,
+        world_size=1,
+        seed=2,
+    )
+    source.weight.sum().backward()
+    source_optimizer.step()
+    source_scheduler.step()
+    source_optimizer.zero_grad(set_to_none=True)
+    checkpoint = save_dcp_checkpoint(
+        tmp_path,
+        model=source,
+        optimizer=source_optimizer,
+        scheduler=source_scheduler,
+        sampler=source_sampler,
+        progress=TrainProgress(
+            global_step=1,
+            consumed_tokens=2,
+            sampler_state=source_sampler.state_dict(),
+            rng_states=[],
+            config=config,
+            source_digests=digests,
+        ),
+    )
+
+    with torch.device("meta"):
+        restored = _QwenLikeModel(
+            weight=(2.0, 3.0),
+            inv_freq=(1.0, 0.2, 0.04),
+        )
+    restored.to_empty(device="cpu")
+    restored_optimizer = torch.optim.AdamW(restored.parameters(), lr=0.01)
+    restored_scheduler = torch.optim.lr_scheduler.LambdaLR(
+        restored_optimizer,
+        lambda _: 1.0,
+    )
+    restored_sampler = CheckpointableDistributedSampler(
+        8,
+        rank=0,
+        world_size=1,
+        seed=2,
+    )
+
+    load_dcp_checkpoint(
+        checkpoint,
+        model=restored,
+        optimizer=restored_optimizer,
+        scheduler=restored_scheduler,
+        sampler=restored_sampler,
+        expected_config=config,
+        expected_source_digests=digests,
+    )
+
+    expected = torch.tensor([1.0, 0.2, 0.04])
+    torch.testing.assert_close(restored.model.rotary_emb.inv_freq, expected)
+    assert restored.model.rotary_emb.original_inv_freq.device.type == "cpu"
+    torch.testing.assert_close(restored.model.rotary_emb.original_inv_freq, expected)
+
+
+@pytest.mark.filterwarnings("ignore:torch.distributed is unavailable or uninitialized")
+@pytest.mark.filterwarnings("ignore:TypedStorage is deprecated")
 def test_model_only_load_initializes_a_policy_from_a_training_checkpoint(tmp_path) -> None:
     torch.manual_seed(31)
     model = nn.Linear(3, 2)
@@ -266,6 +419,47 @@ def test_model_only_load_initializes_a_policy_from_a_training_checkpoint(tmp_pat
 
     for actual, wanted in zip(initialized.parameters(), expected):
         assert torch.equal(actual, wanted)
+
+
+@pytest.mark.filterwarnings("ignore:torch.distributed is unavailable or uninitialized")
+@pytest.mark.filterwarnings("ignore:TypedStorage is deprecated")
+def test_model_only_dcp_load_rebuilds_qwen_rotary_buffers(tmp_path) -> None:
+    source = _QwenLikeModel(
+        weight=(3.0, 4.0),
+        inv_freq=(1.0, 0.5, 0.25),
+    )
+    optimizer = torch.optim.AdamW(source.parameters(), lr=0.01)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1.0)
+    sampler = CheckpointableDistributedSampler(8, rank=0, world_size=1, seed=2)
+    checkpoint = save_dcp_checkpoint(
+        tmp_path,
+        model=source,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        sampler=sampler,
+        progress=TrainProgress(
+            global_step=0,
+            consumed_tokens=0,
+            sampler_state=sampler.state_dict(),
+            rng_states=[],
+            config={"stage": "sft"},
+            source_digests={"model": "base", "data": "fixed"},
+        ),
+    )
+    with torch.device("meta"):
+        restored = _QwenLikeModel(
+            weight=(3.0, 4.0),
+            inv_freq=(1.0, 0.5, 0.25),
+        )
+    restored.to_empty(device="cpu")
+
+    load_dcp_model_only(checkpoint, model=restored)
+
+    torch.testing.assert_close(restored.weight, torch.tensor([3.0, 4.0]))
+    expected = torch.tensor([1.0, 0.5, 0.25])
+    torch.testing.assert_close(restored.model.rotary_emb.inv_freq, expected)
+    assert restored.model.rotary_emb.original_inv_freq.device.type == "cpu"
+    torch.testing.assert_close(restored.model.rotary_emb.original_inv_freq, expected)
 
 
 @pytest.mark.cuda

@@ -428,6 +428,7 @@ def load_dcp_checkpoint(
             f"world_size={world_size} without allow_world_size_change"
         )
 
+    _restore_qwen_rotary_buffers(model)
     _assert_optimizer_step_boundary(model)
     _initialize_adamw_state(optimizer)
     model_state, optimizer_state = get_state_dict(
@@ -496,6 +497,7 @@ def load_dcp_model_only(
 
     checkpoint_path = Path(checkpoint)
     checkpoint_manifest(checkpoint_path)
+    _restore_qwen_rotary_buffers(model)
     model_state = get_model_state_dict(
         model,
         options=StateDictOptions(strict=True),
@@ -612,6 +614,28 @@ def _restore_parameter_aliases(
         setattr(parent, parameter_name, model.get_parameter(source_name))
 
 
+def _restore_qwen_rotary_buffers(model: nn.Module) -> None:
+    """Rebuild config-derived RoPE tensors erased by ``to_empty``."""
+
+    base_model = getattr(model, "model", None)
+    rotary = getattr(base_model, "rotary_emb", None)
+    if rotary is None:
+        return
+    config = getattr(rotary, "config", None)
+    inv_freq = getattr(rotary, "inv_freq", None)
+    if config is None or not isinstance(inv_freq, torch.Tensor):
+        raise TypeError("Qwen rotary embedding does not expose config and inv_freq")
+    if inv_freq.device.type == "meta":
+        raise RuntimeError("Qwen rotary buffers must be materialized before restoration")
+
+    fresh = type(rotary)(config=config, device=inv_freq.device)
+    rotary.inv_freq = fresh.inv_freq
+    if hasattr(fresh, "original_inv_freq"):
+        rotary.original_inv_freq = fresh.original_inv_freq
+    if hasattr(fresh, "attention_scaling"):
+        rotary.attention_scaling = fresh.attention_scaling
+
+
 def load_hf_weights_into_shards(
     model: nn.Module,
     model_name_or_path: str | Path,
@@ -637,6 +661,7 @@ def load_hf_weights_into_shards(
     # Materializing meta parameters replaces each registered alias separately,
     # so restore sharing before DCP resets FSDP's managed sharded parameter.
     _restore_parameter_aliases(model, tied_aliases)
+    _restore_qwen_rotary_buffers(model)
     model_state = get_model_state_dict(
         model,
         options=StateDictOptions(strict=True),
