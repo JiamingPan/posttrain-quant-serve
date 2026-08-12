@@ -74,6 +74,7 @@ SCALING_FIELDS = (
     "run_id",
     "stage",
     "status",
+    "benchmark_mode",
     "git_commit",
     "git_dirty",
     "slurm_job_id",
@@ -126,6 +127,7 @@ SCALING_FIELDS = (
 
 RANK_FIELDS = (
     "run_id",
+    "benchmark_mode",
     "world_size",
     "rank",
     "gpu_name",
@@ -143,6 +145,7 @@ class ScalingConfig:
     output_dir: str | None
     worker: bool = False
     validate_dir: str | None = None
+    pilot: bool = False
     model: str = "Qwen/Qwen3-8B"
     revision: str | None = None
     world_sizes: tuple[int, ...] = SUPPORTED_WORLD_SIZES
@@ -168,6 +171,10 @@ class ScalingConfig:
     record_stem: str = "scaling"
     timeout_seconds: int = 600
     correctness_dir: str = "results/fsdp_correctness"
+
+    @property
+    def benchmark_mode(self) -> str:
+        return "pilot" if self.pilot else "full"
 
     def __post_init__(self) -> None:
         if self.output_dir is None and self.validate_dir is None:
@@ -213,6 +220,7 @@ def _parse_world_sizes(value: str) -> tuple[int, ...]:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", action="store_true")
+    parser.add_argument("--pilot", action="store_true")
     parser.add_argument("--validate", dest="validate_dir")
     parser.add_argument("--output_dir")
     parser.add_argument("--model", default="Qwen/Qwen3-8B")
@@ -1037,6 +1045,7 @@ def run_worker(config: ScalingConfig) -> dict[str, Any] | None:
 
         local_rank_record = {
             "run_id": identity["run_id"],
+            "benchmark_mode": config.benchmark_mode,
             "world_size": ctx.world_size,
             "rank": ctx.rank,
             "gpu_name": gpu_properties.name,
@@ -1066,6 +1075,7 @@ def run_worker(config: ScalingConfig) -> dict[str, Any] | None:
         record = {
             **identity,
             "status": "ok",
+            "benchmark_mode": config.benchmark_mode,
             "world_size": ctx.world_size,
             "model": config.model,
             "model_revision": source.revision,
@@ -1334,42 +1344,119 @@ def run_sweep_controller(config: ScalingConfig) -> list[dict[str, Any]]:
     return records
 
 
-def validate_scaling_records(records: Sequence[Mapping[str, Any]]) -> None:
-    if not records:
-        raise ValueError("scaling records are empty")
+def _validate_scaling_record_set(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    expected_world_sizes: tuple[int, ...],
+    benchmark_mode: str,
+) -> None:
+    if (
+        not expected_world_sizes
+        or tuple(sorted(set(expected_world_sizes))) != expected_world_sizes
+        or any(
+            world_size not in SUPPORTED_WORLD_SIZES
+            for world_size in expected_world_sizes
+        )
+    ):
+        raise ValueError(
+            "expected world sizes must be a strictly increasing supported subset"
+        )
     by_world_size = {int(record["world_size"]): record for record in records}
-    if set(by_world_size) != set(SUPPORTED_WORLD_SIZES) or len(records) != 4:
-        raise ValueError("scaling records require exactly world sizes 1, 2, 4, and 8")
+    if (
+        tuple(sorted(by_world_size)) != expected_world_sizes
+        or len(records) != len(expected_world_sizes)
+    ):
+        raise ValueError("scaling records do not match the requested world sizes")
+    if {str(record["benchmark_mode"]) for record in records} != {benchmark_mode}:
+        raise ValueError("scaling record benchmark mode does not match its controller")
     if len({str(record["gpu_name"]) for record in records}) != 1:
         raise ValueError("scaling records require homogeneous GPU hardware")
-    if len({str(record["comparison_config_digest"]) for record in records}) != 1:
+    if len(records) > 1 and len(
+        {str(record["comparison_config_digest"]) for record in records}
+    ) != 1:
         raise ValueError("scaling records have mismatched comparison configurations")
     if {int(record["global_batch_size"]) for record in records} != {8}:
         raise ValueError("scaling records must use fixed global batch size eight")
+
     for world_size, record in by_world_size.items():
-        if float(record["tokens_per_sec"]) <= 0:
-            raise ValueError("scaling throughput must be positive")
+        for name in ("tokens_per_sec", "mfu", "step_time_mean_seconds"):
+            value = float(record[name])
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        step_time_std = float(record["step_time_std_seconds"])
+        if not math.isfinite(step_time_std) or step_time_std < 0:
+            raise ValueError(
+                "step_time_std_seconds must be finite and non-negative"
+            )
         for name in (
             "communication_active_fraction",
             "communication_exposed_fraction",
         ):
             value = float(record[name])
-            if not 0 <= value <= 1:
-                raise ValueError(f"{name} must be in [0, 1]")
+            if not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{name} must be finite and in [0, 1]")
+
         rank_memory = list(record["rank_memory"])
         ranks = {int(rank["rank"]) for rank in rank_memory}
         if len(rank_memory) != world_size or ranks != set(range(world_size)):
             raise ValueError(
                 f"world size {world_size} is missing complete rank memory records"
             )
+        measure_steps = int(record["measure_steps"])
         for rank in rank_memory:
-            if int(rank["peak_allocated_bytes"]) <= 0:
+            allocated = int(rank["peak_allocated_bytes"])
+            reserved = int(rank["peak_reserved_bytes"])
+            if allocated <= 0:
                 raise ValueError("rank allocated peak must be positive")
-            if int(rank["peak_reserved_bytes"]) < int(rank["peak_allocated_bytes"]):
+            if reserved < allocated:
                 raise ValueError("rank reserved peak must cover allocated peak")
-        efficiency = record.get("scaling_efficiency")
-        if efficiency is not None and float(efficiency) <= 0:
-            raise ValueError("scaling efficiency must be positive")
+            durations = [float(value) for value in rank["step_seconds"]]
+            if len(durations) != measure_steps or any(
+                not math.isfinite(value) or value <= 0 for value in durations
+            ):
+                raise ValueError("rank record has invalid measured step durations")
+
+
+def validate_scaling_records(records: Sequence[Mapping[str, Any]]) -> None:
+    _validate_scaling_record_set(
+        records,
+        expected_world_sizes=SUPPORTED_WORLD_SIZES,
+        benchmark_mode="full",
+    )
+    for record in records:
+        efficiency = record["scaling_efficiency"]
+        if efficiency is None:
+            raise ValueError("full scaling efficiency must be finite and positive")
+        value = float(efficiency)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("full scaling efficiency must be finite and positive")
+
+
+def validate_pilot_scaling_records(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    expected_world_sizes: tuple[int, ...],
+) -> None:
+    _validate_scaling_record_set(
+        records,
+        expected_world_sizes=expected_world_sizes,
+        benchmark_mode="pilot",
+    )
+    has_baseline = 1 in expected_world_sizes
+    for record in records:
+        efficiency = record["scaling_efficiency"]
+        if has_baseline:
+            if efficiency is None:
+                raise ValueError(
+                    "pilot scaling efficiency requires a positive world-size-1 baseline"
+                )
+            value = float(efficiency)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(
+                    "pilot scaling efficiency requires a positive world-size-1 baseline"
+                )
+        elif efficiency is not None:
+            raise ValueError("scaling efficiency requires a world-size-1 baseline")
 
 
 def validate_scaling_directory(directory: str | Path) -> list[dict[str, Any]]:

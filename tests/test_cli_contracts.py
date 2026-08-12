@@ -99,3 +99,23 @@ def test_scaling_worker_defaults_match_the_fixed_global_batch_recipe() -> None:
     assert args.measure_steps == 10
     assert args.profile_steps == 3
     assert args.activation_checkpointing is True
+
+
+def test_scaling_pilot_is_explicit_and_keeps_measurement_defaults() -> None:
+    full = parse_scaling_args(["--output_dir", "/tmp/full"])
+    pilot = parse_scaling_args(
+        [
+            "--pilot",
+            "--world_sizes",
+            "1,2",
+            "--output_dir",
+            "/tmp/pilot",
+        ]
+    )
+
+    assert full.pilot is False
+    assert full.benchmark_mode == "full"
+    assert pilot.pilot is True
+    assert pilot.benchmark_mode == "pilot"
+    assert pilot.world_sizes == (1, 2)
+    assert (pilot.warmup_steps, pilot.measure_steps, pilot.profile_steps) == (3, 10, 3)
