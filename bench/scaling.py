@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import random
+import re
 import statistics
 import subprocess
 import sys
@@ -205,6 +206,13 @@ class ScalingConfig:
             raise ValueError("learning_rate and max_grad_norm must be positive")
         if self.accumulation_sync not in {"reduce_scatter", "no_sync"}:
             raise ValueError("invalid accumulation_sync mode")
+        if self.pilot and self.model == "Qwen/Qwen3-8B" and not (
+            self.revision is not None
+            and re.fullmatch(r"[0-9a-fA-F]{40}", self.revision)
+        ):
+            raise ValueError(
+                "a Qwen3-8B pilot requires an immutable 40-character commit revision"
+            )
 
 
 def _parse_world_sizes(value: str) -> tuple[int, ...]:
@@ -779,6 +787,7 @@ def _worker_resolved_config(
     payload = asdict(config)
     payload.update(
         {
+            "benchmark_mode": config.benchmark_mode,
             "world_size": ctx.world_size,
             "gradient_accumulation_steps": accumulation_steps,
             "model_revision": model_revision,
@@ -1219,6 +1228,8 @@ def _worker_cli_arguments(
         arguments.extend(("--revision", config.revision))
     if config.peak_bf16_tflops is not None:
         arguments.extend(("--peak_bf16_tflops", str(config.peak_bf16_tflops)))
+    if config.pilot:
+        arguments.append("--pilot")
     return arguments
 
 
@@ -1251,10 +1262,13 @@ def _load_gate_record(path: Path) -> dict[str, Any]:
         raise ValueError(f"missing committed correctness gate: {path}") from error
 
 
-def _require_committed_correctness_gates(directory: str | Path) -> None:
+def _require_committed_correctness_gates(
+    directory: str | Path,
+    gate_names: Sequence[str],
+) -> None:
     from bench.correctness import validate_gate_record
 
-    for name in ("sft_gate.json", "grpo_gate.json"):
+    for name in gate_names:
         path = Path(directory) / name
         record = _load_gate_record(path)
         validate_gate_record(record)
@@ -1279,15 +1293,75 @@ def _visible_gpu_ids() -> list[str]:
     return [str(index) for index in range(torch.cuda.device_count())]
 
 
+def required_controller_gpu_count(config: ScalingConfig) -> int:
+    if not config.pilot:
+        if tuple(config.world_sizes) != SUPPORTED_WORLD_SIZES:
+            raise ValueError(
+                "the full scaling controller requires world sizes 1,2,4,8"
+            )
+        return 8
+    if (
+        len(set(config.world_sizes)) != len(config.world_sizes)
+        or tuple(sorted(config.world_sizes)) != tuple(config.world_sizes)
+    ):
+        raise ValueError("pilot world sizes must be strictly increasing")
+    return max(config.world_sizes)
+
+
+def required_correctness_gate_names(config: ScalingConfig) -> tuple[str, ...]:
+    if config.model != "Qwen/Qwen3-8B":
+        return ()
+    if config.pilot:
+        return ("sft_gate.json",)
+    return ("sft_gate.json", "grpo_gate.json")
+
+
+def apply_scaling_efficiencies(records: list[dict[str, Any]]) -> None:
+    baseline_record = next(
+        (record for record in records if int(record["world_size"]) == 1),
+        None,
+    )
+    if baseline_record is None:
+        for record in records:
+            record["scaling_efficiency"] = None
+        return
+    baseline = float(baseline_record["tokens_per_sec"])
+    for record in records:
+        record["scaling_efficiency"] = scaling_efficiency(
+            throughput=float(record["tokens_per_sec"]),
+            baseline_throughput=baseline,
+            world_size=int(record["world_size"]),
+        )
+
+
+def validate_controller_gpu_inventory(
+    config: ScalingConfig,
+    *,
+    visible_gpu_ids: Sequence[str],
+    device_count: int,
+    gpu_names: Sequence[str],
+) -> int:
+    required = required_controller_gpu_count(config)
+    if len(visible_gpu_ids) != required or device_count != required:
+        raise ValueError(
+            f"the scaling controller requires exactly {required} visible GPUs"
+        )
+    if len(gpu_names) != required:
+        raise ValueError("GPU inventory does not cover every visible device")
+    if len(set(gpu_names)) != 1:
+        raise ValueError("the scaling controller requires homogeneous GPU hardware")
+    return required
+
+
 def run_sweep_controller(config: ScalingConfig) -> list[dict[str, Any]]:
-    """Run isolated 1/2/4/8 workers sequentially on one eight-GPU node."""
+    """Run isolated workers sequentially on one homogeneous GPU node."""
 
     if config.worker:
         raise ValueError("controller cannot run with --worker")
-    if tuple(config.world_sizes) != SUPPORTED_WORLD_SIZES:
-        raise ValueError("the scaling controller requires world sizes 1,2,4,8")
-    if config.model == "Qwen/Qwen3-8B":
-        _require_committed_correctness_gates(config.correctness_dir)
+    required_controller_gpu_count(config)
+    gate_names = required_correctness_gate_names(config)
+    if gate_names:
+        _require_committed_correctness_gates(config.correctness_dir, gate_names)
     controller_identity = capture_run_identity(
         "scaling-controller",
         asdict(config),
@@ -1295,11 +1369,14 @@ def run_sweep_controller(config: ScalingConfig) -> list[dict[str, Any]]:
     if config.model == "Qwen/Qwen3-8B" and controller_identity.git_dirty:
         raise RuntimeError("Qwen3 scaling refuses an uncommitted worktree")
     visible = _visible_gpu_ids()
-    if len(visible) != 8 or torch.cuda.device_count() != 8:
-        raise RuntimeError("the scaling controller requires one visible eight-GPU allocation")
-    names = [torch.cuda.get_device_name(index) for index in range(8)]
-    if len(set(names)) != 1:
-        raise RuntimeError("the scaling controller refuses heterogeneous GPUs")
+    device_count = torch.cuda.device_count()
+    names = [torch.cuda.get_device_name(index) for index in range(device_count)]
+    validate_controller_gpu_inventory(
+        config,
+        visible_gpu_ids=visible,
+        device_count=device_count,
+        gpu_names=names,
+    )
 
     output_dir = Path(config.output_dir or "")
     worker_root = output_dir / "workers"
@@ -1325,16 +1402,17 @@ def run_sweep_controller(config: ScalingConfig) -> list[dict[str, Any]]:
         raise RuntimeError("worker comparison configuration digests differ")
     if len(gpu_names) != 1:
         raise RuntimeError("worker GPU identities differ")
-    baseline = float(records[0]["tokens_per_sec"])
-    for record in records:
-        record["scaling_efficiency"] = scaling_efficiency(
-            throughput=float(record["tokens_per_sec"]),
-            baseline_throughput=baseline,
-            world_size=int(record["world_size"]),
+    apply_scaling_efficiencies(records)
+    if config.pilot:
+        validate_pilot_scaling_records(
+            records,
+            expected_world_sizes=config.world_sizes,
         )
-    validate_scaling_records(records)
+    else:
+        validate_scaling_records(records)
 
     controller_config = asdict(config)
+    controller_config["benchmark_mode"] = config.benchmark_mode
     controller_config["gpu_name"] = names[0]
     write_run_config(output_dir, controller_config, filename="run_config.json")
     for record in records:
@@ -1460,7 +1538,8 @@ def validate_pilot_scaling_records(
 
 
 def validate_scaling_directory(directory: str | Path) -> list[dict[str, Any]]:
-    path = Path(directory) / "scaling.jsonl"
+    directory_path = Path(directory)
+    path = directory_path / "scaling.jsonl"
     try:
         records = [
             json.loads(line)
@@ -1469,7 +1548,33 @@ def validate_scaling_directory(directory: str | Path) -> list[dict[str, Any]]:
         ]
     except FileNotFoundError as error:
         raise ValueError(f"missing scaling record file: {path}") from error
-    validate_scaling_records(records)
+    config_path = directory_path / "run_config.json"
+    try:
+        run_config = json.loads(config_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise ValueError(f"missing scaling run config: {config_path}") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid scaling run config: {config_path}") from error
+    if not isinstance(run_config, dict) or not {
+        "pilot",
+        "world_sizes",
+    }.issubset(run_config):
+        raise ValueError("scaling run config must record pilot and world_sizes")
+    try:
+        expected_world_sizes = tuple(int(value) for value in run_config["world_sizes"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("scaling run config has invalid world_sizes") from error
+    if run_config["pilot"] is True:
+        validate_pilot_scaling_records(
+            records,
+            expected_world_sizes=expected_world_sizes,
+        )
+    elif run_config["pilot"] is False:
+        if expected_world_sizes != SUPPORTED_WORLD_SIZES:
+            raise ValueError("full scaling run config must record world sizes 1,2,4,8")
+        validate_scaling_records(records)
+    else:
+        raise ValueError("scaling run config pilot flag must be boolean")
     return records
 
 

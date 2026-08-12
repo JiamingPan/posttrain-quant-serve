@@ -106,6 +106,8 @@ def test_scaling_pilot_is_explicit_and_keeps_measurement_defaults() -> None:
     pilot = parse_scaling_args(
         [
             "--pilot",
+            "--model",
+            "Qwen/Qwen2.5-0.5B-Instruct",
             "--world_sizes",
             "1,2",
             "--output_dir",
