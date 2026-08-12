@@ -6,6 +6,7 @@ import argparse
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+from math import isfinite
 from pathlib import Path
 import shlex
 from statistics import fmean, variance
@@ -967,16 +968,30 @@ def build_gate_record(
             "curve_noise_floor": CURVE_NOISE_FLOOR,
         },
         "metrics": metrics,
+        "diagnostic_only_metrics": (
+            ["grad_norm_relative_error_max", "update_cosine_min"]
+            if gate == "sft"
+            else []
+        ),
         "source_records": source_records,
     }
     validate_gate_record(record)
     return record
 
 
+def _finite_float(value: Any, *, label: str) -> float:
+    number = float(value)
+    if not isfinite(number):
+        raise ValueError(f"{label} must be finite")
+    return number
+
+
 def _validate_curve(points: Any, *, label: str) -> None:
     if not isinstance(points, list) or not points:
         raise ValueError(f"{label} curve points are missing")
     for point in points:
+        for field in ("oracle_mean", "fsdp2_mean", "mean_abs_diff", "noise_bound"):
+            _finite_float(point[field], label=f"{label} curve {field}")
         if float(point["mean_abs_diff"]) > float(point["noise_bound"]):
             raise ValueError(f"{label} curve exceeds its three-seed noise bound")
 
@@ -1002,17 +1017,37 @@ def validate_gate_record(record: Mapping[str, Any]) -> None:
     metrics = record.get("metrics")
     if not isinstance(metrics, Mapping):
         raise ValueError("correctness record is missing metrics")
-    if float(metrics["first_loss_abs_error_max"]) > FIRST_LOSS_ATOL:
+    first_loss_error = _finite_float(
+        metrics["first_loss_abs_error_max"],
+        label="first loss absolute error",
+    )
+    grad_norm_error = _finite_float(
+        metrics["grad_norm_relative_error_max"],
+        label="gradient norm relative error",
+    )
+    update_cosine = _finite_float(
+        metrics["update_cosine_min"],
+        label="selected update cosine",
+    )
+    if first_loss_error > FIRST_LOSS_ATOL:
         raise ValueError("first loss exceeds the 5e-3 absolute tolerance")
-    if float(metrics["grad_norm_relative_error_max"]) > GRAD_NORM_RTOL:
-        raise ValueError("gradient norm exceeds the 1e-2 relative tolerance")
-    if float(metrics["update_cosine_min"]) < UPDATE_COSINE_MIN:
-        raise ValueError("selected update cosine must be at least 0.999")
     _validate_curve(metrics["loss_curve_points"], label="loss")
     if gate == "grpo":
-        if float(metrics["fixed_rollout_loss_abs_error_max"]) > FIXED_ROLLOUT_ATOL:
+        if grad_norm_error > GRAD_NORM_RTOL:
+            raise ValueError("gradient norm exceeds the 1e-2 relative tolerance")
+        if update_cosine < UPDATE_COSINE_MIN:
+            raise ValueError("selected update cosine must be at least 0.999")
+        fixed_rollout_error = _finite_float(
+            metrics["fixed_rollout_loss_abs_error_max"],
+            label="fixed-rollout loss absolute error",
+        )
+        resume_error = _finite_float(
+            metrics["resume_next_loss_abs_error_max"],
+            label="resume next-step loss absolute error",
+        )
+        if fixed_rollout_error > FIXED_ROLLOUT_ATOL:
             raise ValueError("fixed-rollout loss exceeds the 5e-4 tolerance")
-        if float(metrics["resume_next_loss_abs_error_max"]) > RESUME_NEXT_LOSS_ATOL:
+        if resume_error > RESUME_NEXT_LOSS_ATOL:
             raise ValueError("resume next-step loss exceeds the 1e-6 tolerance")
         _validate_curve(metrics["reward_curve_points"], label="reward")
     if record.get("status") != "pass":

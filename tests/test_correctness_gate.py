@@ -48,13 +48,55 @@ def _passing_record(gate: str = "sft") -> dict[str, object]:
     )
 
 
-def test_gate_rejects_missing_seed_or_failed_metric() -> None:
+def test_gate_rejects_missing_seed() -> None:
     record = _passing_record()
     record["seeds"] = [41, 42]
     with pytest.raises(ValueError, match="exactly three seeds"):
         validate_gate_record(record)
 
+
+def test_sft_gate_records_bf16_trajectory_diagnostics_without_rejecting() -> None:
     record = _passing_record()
+    record["metrics"]["grad_norm_relative_error_max"] = 0.25
+    record["metrics"]["update_cosine_min"] = 0.95
+
+    validate_gate_record(record)
+
+    assert record["metrics"]["grad_norm_relative_error_max"] == 0.25
+    assert record["metrics"]["update_cosine_min"] == 0.95
+    assert record["diagnostic_only_metrics"] == [
+        "grad_norm_relative_error_max",
+        "update_cosine_min",
+    ]
+
+
+@pytest.mark.parametrize(
+    "metric",
+    ["grad_norm_relative_error_max", "update_cosine_min"],
+)
+def test_sft_gate_rejects_nonfinite_diagnostics(metric: str) -> None:
+    record = _passing_record()
+    record["metrics"][metric] = float("nan")
+
+    with pytest.raises(ValueError, match="finite"):
+        validate_gate_record(record)
+
+
+def test_gate_rejects_nonfinite_loss_curve() -> None:
+    record = _passing_record()
+    record["metrics"]["loss_curve_points"][0]["mean_abs_diff"] = float("inf")
+
+    with pytest.raises(ValueError, match="finite"):
+        validate_gate_record(record)
+
+
+def test_grpo_keeps_strict_gradient_and_update_checks() -> None:
+    record = _passing_record("grpo")
+    record["metrics"]["grad_norm_relative_error_max"] = 0.02
+    with pytest.raises(ValueError, match="gradient norm"):
+        validate_gate_record(record)
+
+    record = _passing_record("grpo")
     record["metrics"]["update_cosine_min"] = 0.998
     with pytest.raises(ValueError, match="0.999"):
         validate_gate_record(record)
