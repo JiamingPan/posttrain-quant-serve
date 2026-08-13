@@ -62,6 +62,7 @@ class TinyGeneratingPolicy(nn.Module):
         assert kwargs["max_new_tokens"] == 3
         assert kwargs["temperature"] == 1.0
         assert kwargs["synced_gpus"] is False
+        assert kwargs["use_cache"] is True
         completions = torch.tensor(
             [[20 if index % 2 == 0 else 21, 3, 0] for index in range(input_ids.size(0))],
             device=input_ids.device,

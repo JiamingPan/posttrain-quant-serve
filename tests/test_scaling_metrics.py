@@ -62,6 +62,86 @@ def test_storage_bytes_deduplicates_views() -> None:
     assert deduplicated_storage_bytes([tensor, tensor.view(4, 8)]) == 64
 
 
+def test_saved_tensor_tracker_allows_repeated_unpack_until_graph_releases_it() -> None:
+    tracker = scaling_module._SavedTensorLiveBytes()
+    x = torch.ones(5, requires_grad=True)
+
+    with torch.autograd.graph.saved_tensors_hooks(tracker.pack, tracker.unpack):
+        y = x.pow(2)
+
+    assert torch.equal(y.grad_fn._saved_self, x)
+    y.sum().backward()
+    assert torch.equal(x.grad, 2 * x)
+    assert tracker.maximum_bytes == x.untyped_storage().nbytes()
+
+    del y
+    assert tracker.current_bytes == 0
+
+
+def test_saved_tensor_tracker_deduplicates_shared_storage_until_last_release() -> None:
+    tracker = scaling_module._SavedTensorLiveBytes()
+    tensor = torch.zeros(32, dtype=torch.bfloat16)
+
+    packed_tensor = tracker.pack(tensor)
+    packed_view = tracker.pack(tensor.view(4, 8))
+    assert tracker.current_bytes == 64
+    assert tracker.maximum_bytes == 64
+
+    del packed_tensor
+    assert tracker.current_bytes == 64
+    assert tracker.unpack(packed_view).shape == (4, 8)
+
+    del packed_view
+    assert tracker.current_bytes == 0
+
+
+def test_saved_tensor_tracker_survives_storage_pointer_drift() -> None:
+    tracker = scaling_module._SavedTensorLiveBytes()
+    tensor = torch.zeros(1024, dtype=torch.bfloat16)
+    packed = tracker.pack(tensor)
+    original_pointer = tensor.untyped_storage().data_ptr()
+
+    decoys: list[torch.Tensor] = []
+    for _ in range(64):
+        tensor.untyped_storage().resize_(0)
+        decoys.append(torch.empty(2048, dtype=torch.uint8))
+        tensor.untyped_storage().resize_(2048)
+        if tensor.untyped_storage().data_ptr() != original_pointer:
+            break
+    else:
+        pytest.skip("allocator kept reusing the same address")
+
+    assert tracker.unpack(packed).shape == (1024,)
+    del packed
+    assert tracker.current_bytes == 0
+
+
+def test_saved_tensor_tracker_excludes_parameter_storage_from_activations() -> None:
+    parameter = torch.nn.Parameter(torch.zeros(32, dtype=torch.bfloat16))
+    tracker = scaling_module._SavedTensorLiveBytes(
+        excluded_tensors=lambda: (parameter,),
+    )
+
+    packed_parameter = tracker.pack(parameter)
+    packed_activation = tracker.pack(torch.zeros(8, dtype=torch.bfloat16))
+
+    assert tracker.maximum_bytes == 16
+    del packed_parameter, packed_activation
+    tracker.assert_drained()
+
+
+def test_saved_tensor_tracker_reports_a_live_handle_after_the_probe() -> None:
+    tracker = scaling_module._SavedTensorLiveBytes()
+    packed = tracker.pack(torch.zeros(8, dtype=torch.bfloat16))
+
+    with pytest.raises(RuntimeError, match="did not drain.*16 bytes.*1 storages"):
+        tracker.assert_drained()
+
+    assert packed._finalizer.atexit is False
+    del packed
+    tracker.assert_drained()
+
+
 def test_memory_components_inventory_storage_and_leave_an_auditable_residual() -> None:
     model = torch.nn.Linear(4, 2, bias=False, dtype=torch.bfloat16)
     parameter = next(model.parameters())
@@ -115,6 +195,19 @@ def test_fixed_global_batch_rejects_non_integral_accumulation() -> None:
             world_size=4,
             micro_batch_size=1,
         )
+
+
+def test_memory_probe_runs_after_first_warmup_before_remaining_work() -> None:
+    events: list[str] = []
+
+    result = scaling_module._run_warmup_with_early_probe(
+        warmup_steps=3,
+        warmup_step=lambda index: events.append(f"warmup-{index}"),
+        probe_step=lambda: events.append("probe") or "probe-result",
+    )
+
+    assert events == ["warmup-0", "probe", "warmup-1", "warmup-2"]
+    assert result == "probe-result"
 
 
 def test_scaling_efficiency_uses_the_world_size_one_throughput() -> None:

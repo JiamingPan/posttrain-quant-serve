@@ -39,6 +39,41 @@ def test_disabling_activation_checkpointing_adds_ten_gib() -> None:
     assert uncheckpointed.allocated_gib - checkpointed.allocated_gib == pytest.approx(10.0)
 
 
+def test_no_sync_adds_one_full_fp32_gradient_buffer_to_sft_peak() -> None:
+    reduced = predict_sft_peak(
+        QWEN3_8B_PARAMETERS,
+        2,
+        checkpointing=True,
+        accumulation_sync="reduce_scatter",
+    )
+    no_sync = predict_sft_peak(
+        QWEN3_8B_PARAMETERS,
+        2,
+        checkpointing=True,
+        accumulation_sync="no_sync",
+    )
+
+    assert no_sync.grads_gib - reduced.grads_gib == pytest.approx(
+        QWEN3_8B_PARAMETERS * 4 / 1024**3
+    )
+
+
+def test_launch_preflight_rejects_no_sync_when_full_fp32_gradients_do_not_fit() -> None:
+    with pytest.raises(ValueError, match="predicted_reserved_gib"):
+        preflight_launch(
+            stage="sft",
+            world_size=2,
+            stage_args=(
+                "--model",
+                "Qwen/Qwen3-8B",
+                "--accumulation_sync",
+                "no_sync",
+            ),
+            device_name="NVIDIA A40",
+            capacity_gib=44.4,
+        )
+
+
 def test_beta_zero_grpo_allocates_no_reference_model() -> None:
     prediction = predict_grpo_peak(
         QWEN3_8B_PARAMETERS,

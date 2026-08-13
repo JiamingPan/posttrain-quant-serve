@@ -20,6 +20,7 @@ class MemoryPrediction:
     stage: str
     world_size: int
     checkpointing: bool
+    accumulation_sync: str
     params_gib: float
     grads_gib: float
     optimizer_gib: float
@@ -59,13 +60,19 @@ def predict_sft_peak(
     world_size: int,
     *,
     checkpointing: bool,
+    accumulation_sync: str = "reduce_scatter",
 ) -> MemoryPrediction:
     """Predict native-bf16 SFT peak memory using the approved component ledger."""
 
     _validate_inputs(parameter_count, world_size)
+    if accumulation_sync not in {"reduce_scatter", "no_sync"}:
+        raise ValueError("accumulation_sync must be 'reduce_scatter' or 'no_sync'")
     shard_gib = _bf16_gib(parameter_count) / world_size
     params_gib = shard_gib
-    grads_gib = shard_gib
+    unsharded_accumulation_gib = (
+        parameter_count * 4 / GIB if accumulation_sync == "no_sync" else 0.0
+    )
+    grads_gib = shard_gib + unsharded_accumulation_gib
     optimizer_gib = 2 * shard_gib
     activations_gib = 3.5 if checkpointing else 13.5
     collectives_gib = 0.0 if world_size == 1 else 2.7
@@ -87,6 +94,7 @@ def predict_sft_peak(
         stage="sft",
         world_size=world_size,
         checkpointing=checkpointing,
+        accumulation_sync=accumulation_sync,
         params_gib=params_gib,
         grads_gib=grads_gib,
         optimizer_gib=optimizer_gib,
@@ -203,6 +211,11 @@ def _parse_training_memory_args(
         action="store_false",
     )
     parser.set_defaults(activation_checkpointing=True)
+    parser.add_argument(
+        "--accumulation_sync",
+        choices=("reduce_scatter", "no_sync"),
+        default="reduce_scatter",
+    )
     if stage == "grpo":
         parser.add_argument("--beta", type=float, default=0.0)
         parser.add_argument(
@@ -264,6 +277,7 @@ def preflight_launch(
             QWEN3_8B_PARAMETERS,
             world_size,
             checkpointing=parsed.activation_checkpointing,
+            accumulation_sync=parsed.accumulation_sync,
         )
         assert_memory_fits(
             prediction,
@@ -273,6 +287,7 @@ def preflight_launch(
         )
         result = {
             **base,
+            "accumulation_sync": parsed.accumulation_sync,
             "activation_checkpointing": parsed.activation_checkpointing,
             "checkpointing": parsed.activation_checkpointing,
             "prediction": asdict(prediction),

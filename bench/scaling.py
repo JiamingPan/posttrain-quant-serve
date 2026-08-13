@@ -17,7 +17,8 @@ import statistics
 import subprocess
 import sys
 import time
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+import weakref
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
 import torch
 import torch.distributed as dist
@@ -65,7 +66,9 @@ COMMUNICATION_EXPOSED_DEFINITION = (
 )
 MEMORY_PROBE_METHOD = {
     "params_grads_optimizer": "deduplicated local tensor storage inventory",
-    "activations": "maximum live storage observed by saved_tensors_hooks",
+    "activations": (
+        "maximum live non-parameter storage observed by saved_tensors_hooks"
+    ),
     "collectives": "maximum FSDP post-unshard versus post-reshard allocator delta",
     "other": "allocated peak minus inventoried categories, clamped at zero",
 }
@@ -517,30 +520,76 @@ def measure_memory_components(
     }
 
 
+class _TrackedSavedTensor:
+    """Keep a packed tensor alive until autograd releases its saved handle."""
+
+    __slots__ = ("tensor", "_finalizer", "__weakref__")
+
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        tracker: "_SavedTensorLiveBytes | None",
+        key: tuple[Any, ...],
+    ) -> None:
+        # detach() avoids a graph-reference cycle while retaining the same
+        # storage object as FSDP2 frees and re-allocates its unsharded tensor.
+        self.tensor = tensor.detach()
+        self._finalizer = (
+            weakref.finalize(self, tracker.release, key)
+            if tracker is not None
+            else None
+        )
+        if self._finalizer is not None:
+            self._finalizer.atexit = False
+
+
 class _SavedTensorLiveBytes:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        excluded_tensors: Callable[[], Iterable[torch.Tensor]] | None = None,
+    ) -> None:
         self._references: dict[tuple[Any, ...], tuple[int, int]] = {}
+        self._excluded_tensors = excluded_tensors
         self.current_bytes = 0
         self.maximum_bytes = 0
 
-    def pack(self, tensor: torch.Tensor) -> torch.Tensor:
+    def pack(self, tensor: torch.Tensor) -> _TrackedSavedTensor:
         key, size = _tensor_storage_entry(tensor)
+        if self._excluded_tensors is not None and any(
+            _tensor_storage_entry(excluded)[0] == key
+            for excluded in self._excluded_tensors()
+        ):
+            return _TrackedSavedTensor(tensor, None, key)
         count, existing_size = self._references.get(key, (0, size))
         if count == 0:
             self.current_bytes += size
             self.maximum_bytes = max(self.maximum_bytes, self.current_bytes)
         self._references[key] = (count + 1, existing_size)
-        return tensor
+        return _TrackedSavedTensor(tensor, self, key)
 
-    def unpack(self, tensor: torch.Tensor) -> torch.Tensor:
-        key, _ = _tensor_storage_entry(tensor)
+    @staticmethod
+    def unpack(saved: _TrackedSavedTensor) -> torch.Tensor:
+        # FSDP2 may move an unsharded parameter's storage between forward and
+        # backward, and autograd may unpack a saved value more than once. Never
+        # recompute accounting identity from the tensor during unpack.
+        return saved.tensor
+
+    def release(self, key: tuple[Any, ...]) -> None:
         count, size = self._references[key]
         if count == 1:
             self.current_bytes -= size
             del self._references[key]
         else:
             self._references[key] = (count - 1, size)
-        return tensor
+
+    def assert_drained(self) -> None:
+        if self.current_bytes != 0 or self._references:
+            raise RuntimeError(
+                "saved-tensor ledger did not drain: "
+                f"{self.current_bytes} bytes still live across "
+                f"{len(self._references)} storages"
+            )
 
 
 class _CollectiveAllocationTracker:
@@ -734,7 +783,7 @@ def _measure_probe_step(
     ctx: DistContext,
     config: ScalingConfig,
 ) -> tuple[dict[str, int], int, int]:
-    saved_tensors = _SavedTensorLiveBytes()
+    saved_tensors = _SavedTensorLiveBytes(excluded_tensors=model.parameters)
     collectives = _CollectiveAllocationTracker(ctx.device)
     observed_gradient_bytes = 0
 
@@ -761,6 +810,7 @@ def _measure_probe_step(
                 accumulation_sync=config.accumulation_sync,
                 before_optimizer_step=observe_gradients,
             )
+    saved_tensors.assert_drained()
     components = measure_memory_components(
         model,
         optimizer,
@@ -827,6 +877,24 @@ def _comparison_config(
     }
 
 
+def _run_warmup_with_early_probe(
+    *,
+    warmup_steps: int,
+    warmup_step: Callable[[int], None],
+    probe_step: Callable[[], Any],
+) -> Any:
+    """Run the diagnostic immediately after allocator/optimizer initialization."""
+
+    if warmup_steps <= 0:
+        raise ValueError("warmup_steps must be positive")
+    probe_result: Any = None
+    for warmup_index in range(warmup_steps):
+        warmup_step(warmup_index)
+        if warmup_index == 0:
+            probe_result = probe_step()
+    return probe_result
+
+
 def run_worker(config: ScalingConfig) -> dict[str, Any] | None:
     """Measure one world size; rank zero writes and returns the complete record."""
 
@@ -855,6 +923,8 @@ def run_worker(config: ScalingConfig) -> dict[str, Any] | None:
                 "--activation_checkpointing"
                 if config.activation_checkpointing
                 else "--no_activation_checkpointing",
+                "--accumulation_sync",
+                config.accumulation_sync,
             ),
             device_name=gpu_properties.name,
             capacity_gib=gpu_properties.total_memory / GIB,
@@ -945,10 +1015,10 @@ def run_worker(config: ScalingConfig) -> dict[str, Any] | None:
             if identity["git_commit"] != controller_commit:
                 raise RuntimeError("scaling worker commit differs from its controller")
             identity["git_dirty"] = False
-        elif config.model == "Qwen/Qwen3-8B" and identity["git_dirty"]:
-            raise RuntimeError("Qwen3 scaling refuses an uncommitted worktree")
+        elif identity["git_dirty"]:
+            raise RuntimeError("scaling requires a clean Git worktree")
 
-        for warmup_index in range(config.warmup_steps):
+        def run_warmup_step(warmup_index: int) -> None:
             batches = _next_step_batches(
                 features,
                 sampler,
@@ -968,6 +1038,30 @@ def run_worker(config: ScalingConfig) -> dict[str, Any] | None:
             )
             if warmup_index == 0:
                 assert_adamw_moment_dtype(optimizer, torch.bfloat16)
+
+        def run_probe_step() -> tuple[dict[str, int], int, int]:
+            probe_batches = _next_step_batches(
+                features,
+                sampler,
+                config=config,
+                accumulation_steps=accumulation_steps,
+                pad_token_id=tokenizer.pad_token_id,
+                device=ctx.device,
+            )
+            return _measure_probe_step(
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                batches=probe_batches,
+                ctx=ctx,
+                config=config,
+            )
+
+        components, probe_allocated, probe_reserved = _run_warmup_with_early_probe(
+            warmup_steps=config.warmup_steps,
+            warmup_step=run_warmup_step,
+            probe_step=run_probe_step,
+        )
 
         torch.cuda.synchronize(ctx.device)
         torch.cuda.reset_peak_memory_stats(ctx.device)
@@ -1013,22 +1107,6 @@ def run_worker(config: ScalingConfig) -> dict[str, Any] | None:
         useful_tokens = int(token_tensor.item())
         elapsed = float(elapsed_tensor.item())
 
-        probe_batches = _next_step_batches(
-            features,
-            sampler,
-            config=config,
-            accumulation_steps=accumulation_steps,
-            pad_token_id=tokenizer.pad_token_id,
-            device=ctx.device,
-        )
-        components, probe_allocated, probe_reserved = _measure_probe_step(
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            batches=probe_batches,
-            ctx=ctx,
-            config=config,
-        )
         peak_allocated = max(peak_allocated, probe_allocated)
         peak_reserved = max(peak_reserved, probe_reserved)
 
@@ -1366,8 +1444,8 @@ def run_sweep_controller(config: ScalingConfig) -> list[dict[str, Any]]:
         "scaling-controller",
         asdict(config),
     )
-    if config.model == "Qwen/Qwen3-8B" and controller_identity.git_dirty:
-        raise RuntimeError("Qwen3 scaling refuses an uncommitted worktree")
+    if controller_identity.git_dirty:
+        raise RuntimeError("scaling requires a clean Git worktree before starting workers")
     visible = _visible_gpu_ids()
     device_count = torch.cuda.device_count()
     names = [torch.cuda.get_device_name(index) for index in range(device_count)]

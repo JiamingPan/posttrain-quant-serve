@@ -79,6 +79,23 @@ def test_select_token_logps_selects_next_tokens_and_completion_suffix() -> None:
     assert torch.allclose(actual, expected_all[:, -2:])
 
 
+def test_select_token_logps_saves_only_the_completion_suffix_for_backward() -> None:
+    logits = torch.randn(1, 12, 32, requires_grad=True)
+    token_ids = torch.arange(12).remainder(32).unsqueeze(0)
+    saved_shapes: list[torch.Size] = []
+
+    def pack(tensor: torch.Tensor) -> torch.Tensor:
+        saved_shapes.append(tensor.shape)
+        return tensor
+
+    with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor):
+        selected = select_token_logps(logits, token_ids, completion_length=3)
+        selected.sum().backward()
+
+    assert saved_shapes
+    assert max(shape.numel() for shape in saved_shapes) <= 1 * 3 * 32
+
+
 def test_dr_grpo_matches_independent_scalar_fixture() -> None:
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
 

@@ -317,6 +317,7 @@ def generate_rollout_batch(
                     pad_token_id=pad_token_id,
                     eos_token_id=tokenizer.eos_token_id,
                     synced_gpus=ctx.world_size > 1,
+                    use_cache=True,
                 )
             prompt_width = prompt_ids.size(1)
             if generated.size(1) < prompt_width:
@@ -456,11 +457,12 @@ def select_token_logps(
     if completion_length <= 0 or completion_length > token_ids.size(1) - 1:
         raise ValueError("completion_length must select a non-empty causal suffix")
 
-    next_token_logps = logits[:, :-1].float().log_softmax(dim=-1).gather(
+    suffix_logits = logits[:, -(completion_length + 1) : -1]
+    suffix_token_ids = token_ids[:, -completion_length:]
+    return suffix_logits.float().log_softmax(dim=-1).gather(
         dim=-1,
-        index=token_ids[:, 1:].unsqueeze(-1),
+        index=suffix_token_ids.unsqueeze(-1),
     ).squeeze(-1)
-    return next_token_logps[:, -completion_length:]
 
 
 def _validate_grpo_inputs(

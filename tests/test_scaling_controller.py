@@ -7,6 +7,7 @@ import pytest
 
 import bench.scaling as scaling_module
 from bench.scaling import ScalingConfig, build_worker_command
+from train.run_tracking import RunIdentity
 
 
 IMMUTABLE_REVISION = "0123456789abcdef0123456789abcdef01234567"
@@ -190,6 +191,36 @@ def test_controller_gpu_inventory_requires_the_exact_homogeneous_allocation(
             visible_gpu_ids=("0", "1"),
             device_count=2,
             gpu_names=("NVIDIA A40", "NVIDIA A100-SXM4-80GB"),
+        )
+
+
+def test_controller_rejects_any_dirty_pilot_before_starting_workers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = RunIdentity(
+        run_id="scaling-controller-test",
+        stage="scaling-controller",
+        git_commit=IMMUTABLE_REVISION,
+        git_dirty=True,
+        slurm_job_id=None,
+        hostname="test-host",
+        started_at_utc="2026-08-13T00:00:00Z",
+    )
+    monkeypatch.setattr(
+        scaling_module,
+        "capture_run_identity",
+        lambda *_args, **_kwargs: identity,
+    )
+    monkeypatch.setattr(
+        scaling_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("dirty pilot started a worker"),
+    )
+
+    with pytest.raises(RuntimeError, match="clean Git worktree"):
+        scaling_module.run_sweep_controller(
+            _config(tmp_path, pilot=True, world_sizes=(1, 2))
         )
 
 
