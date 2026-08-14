@@ -1,0 +1,19 @@
+run_id,stage,status,benchmark_mode,git_commit,git_dirty,slurm_job_id,hostname,started_at_utc,world_size,model,model_revision,parameter_count,dataset,dataset_digest,seed,global_batch_size,sequence_length,micro_batch_size,gradient_accumulation_steps,activation_checkpointing,accumulation_sync,gpu_name,gpu_capacity_gib,gpu_topology,torch_version,cuda_version,nccl_version,transformers_version,datasets_version,comparison_config_digest,warmup_steps,measure_steps,profile_steps,useful_tokens,elapsed_seconds,tokens_per_sec,peak_bf16_tflops_per_gpu,mfu,mfu_definition,peak_allocated_bytes,peak_reserved_bytes,rank_memory,memory_components,memory_probe_method,communication_active_fraction,communication_exposed_fraction,communication_active_definition,communication_exposed_definition,step_time_mean_seconds,step_time_std_seconds,scaling_efficiency
+scaling-20260813T210628Z-19124f115f,scaling,ok,pilot,97c1c9957a31b5234d6ab856b4a86261c7d2be8e,False,57342451,gl1511.arc-ts.umich.edu,2026-08-13T21:06:28Z,1,Qwen/Qwen2.5-0.5B-Instruct,7ae557604adf67be50417f59c2c2f167def9a775,494032768,openai/gsm8k,c4456be30160da3373203a6d89a8226b5cad5bbe73ab18649f361f903acd2ff2,42,8,512,1,8,True,reduce_scatter,NVIDIA A40,44.423828125,"[4mGPU0	GPU1	NIC0	CPU Affinity	NUMA Affinity	GPU NUMA ID[0m
+GPU0	 X 	PIX	PIX	8-9,14-15	0		N/A
+GPU1	PIX	 X 	PIX	8-9,14-15	0		N/A
+NIC0	PIX	PIX	 X 				
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks
+
+NIC Legend:
+
+  NIC0: mlx5_0",2.11.0+cu130,13.0,2.28.9,5.9.0,4.8.5,982ca76c0051c4572b536fead2e518b535d9c837da579123719c20a82a8e8dd5,3,10,3,40960,14.237090847920626,2876.9922477513965,149.7,0.05696707189062783,6 * parameter_count * useful_nonpadding_tokens / (seconds * world_size * peak_bf16_flops_per_gpu),5818321920,7361003520,"[{""benchmark_mode"":""pilot"",""communication_active_fraction"":0.0,""communication_exposed_fraction"":0.0,""gpu_name"":""NVIDIA A40"",""memory_components"":{""activations_bytes"":336257540,""category_sum_bytes"":5818321408,""collectives_bytes"":90861568,""grads_bytes"":988065536,""optimizer_bytes"":1976132232,""other_bytes"":1438938996,""params_bytes"":988065536,""peak_allocated_bytes"":5818321408},""peak_allocated_bytes"":5818321920,""peak_reserved_bytes"":7361003520,""rank"":0,""run_id"":""scaling-20260813T210628Z-19124f115f"",""step_seconds"":[1.5828440970508382,1.3797683590091765,1.3778120250208303,1.3806473289150745,1.3768345710122958,1.5792411429574713,1.378428093972616,1.378730584983714,1.3825392499566078,1.382166178082116],""world_size"":1}]","{""activations_bytes"":336257540,""category_sum_bytes"":5818321408,""collectives_bytes"":90861568,""grads_bytes"":988065536,""optimizer_bytes"":1976132232,""other_bytes"":1438938996,""params_bytes"":988065536,""peak_allocated_bytes"":5818321408}","{""activations"":""maximum live non-parameter storage observed by saved_tensors_hooks"",""collectives"":""maximum FSDP post-unshard versus post-reshard allocator delta"",""other"":""allocated peak minus inventoried categories, clamped at zero"",""params_grads_optimizer"":""deduplicated local tensor storage inventory""}",0.0,0.0,union duration of NCCL CUDA kernels / profiled CUDA step window,NCCL CUDA-kernel duration not overlapped by compute kernels / profiled CUDA step window,1.419901163096074,0.08059294936872645,

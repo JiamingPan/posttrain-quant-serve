@@ -130,6 +130,33 @@ memory column is also not a model-weight-footprint claim: vLLM was run with
 capacity in every row. Full sequential and batch-sweep tables are in
 `results/serving_benchmark.md`.
 
+## Distributed training (FSDP2 pilot)
+
+The single-GPU track above is capped by memory: for the bf16-resident Adam
+configuration measured here, the analytical no-shard ledger predicts about
+71.3 GiB reserved per GPU, which exceeds a 44.42 GiB A40. DDP does not help
+because it replicates that state on every rank. FSDP2 `FULL_SHARD` shards
+parameters, gradients, and optimizer state instead.
+
+A benchmark pilot on two A40s:
+
+| Config | Throughput | Peak mem / GPU | Note |
+| --- | ---: | ---: | --- |
+| Qwen3-8B, 2 GPU | 893 tok/s | 38.48 GiB alloc / 43.82 reserved | 44.42 GiB card, ~0.60 GiB headroom |
+| Qwen2.5-0.5B, 1 GPU | 2,877 tok/s | 5.42 GiB | control |
+| Qwen2.5-0.5B, 2 GPU | 3,185 tok/s | 3.36 GiB | 1.11x throughput, 0.62x memory |
+
+**The result is that full-parameter Qwen3-8B training steps run at all on this
+hardware.** It is not a claim that an SFT run finishes in the 16:29 the pilot
+took. The 1.11x control result is a fixed-global-batch strong-scaling
+measurement, but not a representative production scaling efficiency: at global
+batch 8 and short sequences, communication dominates. Scaling efficiency for
+the 8B row is recorded as `null` rather than estimated because there is no valid
+single-GPU 8B baseline to divide by.
+
+Full numbers, exact measurement schedule, and caveats are in
+`results/fsdp2_benchmark.md`.
+
 ## Layout
 
 ```text
