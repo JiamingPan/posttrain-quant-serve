@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 from dataclasses import fields
+from pathlib import Path
 from statistics import pstdev
 from typing import Any
 
-from datasets import load_dataset
-from gsm8k_reward import build_gsm8k_chat_text, gsm8k_exact_match_reward
-from transformers import AutoTokenizer
-from trl import GRPOConfig, GRPOTrainer
+try:
+    from scripts.gsm8k_reward import build_gsm8k_chat_text, gsm8k_exact_match_reward
+except ModuleNotFoundError:  # Direct ``python scripts/train_grpo_gsm8k.py`` use.
+    from gsm8k_reward import build_gsm8k_chat_text, gsm8k_exact_match_reward
 
 
 def build_dataset(split: str, limit: int | None, tokenizer: Any):
+    from datasets import load_dataset
+
     dataset = load_dataset("openai/gsm8k", "main", split=split)
     if limit is not None:
         dataset = dataset.select(range(min(limit, len(dataset))))
@@ -52,7 +57,7 @@ class RewardWithDiagnostics:
         return rewards
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
     parser.add_argument("--output_dir", required=True)
@@ -70,6 +75,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save_steps", type=int, default=5)
     parser.add_argument("--resume_from_checkpoint", default=None)
     parser.add_argument("--report_to", default="none")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--run_record", default=None)
 
     # Optional TRL GRPOConfig knobs. Defaults are None unless the earlier smoke config already used
     # the field, so current behavior is preserved unless a flag/environment override is passed.
@@ -82,7 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--loss_type", default=None)
     parser.add_argument("--epsilon_high", type=float, default=None)
     parser.add_argument("--mask_truncated_completions", action="store_true")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def normalize_scale_rewards(value: str | None) -> str | bool | None:
@@ -96,8 +103,92 @@ def add_optional_config(kwargs: dict[str, Any], key: str, value: Any) -> None:
         kwargs[key] = value
 
 
-def build_grpo_config(**kwargs: Any) -> GRPOConfig:
+def build_training_config_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    config_kwargs: dict[str, Any] = dict(
+        output_dir=args.output_dir,
+        max_steps=args.max_steps,
+        num_generations=args.num_generations,
+        per_device_train_batch_size=args.per_device_train_batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        learning_rate=args.learning_rate,
+        beta=args.beta,
+        max_prompt_length=args.max_prompt_length,
+        max_completion_length=args.max_completion_length,
+        logging_strategy="steps",
+        logging_steps=args.logging_steps,
+        save_steps=args.save_steps,
+        save_strategy="steps",
+        save_total_limit=2,
+        bf16=True,
+        gradient_checkpointing=True,
+        remove_unused_columns=False,
+        log_completions=True,
+        num_completions_to_print=2,
+        report_to=args.report_to,
+        log_on_each_node=False,
+        seed=args.seed,
+    )
+    add_optional_config(config_kwargs, "temperature", args.temperature)
+    add_optional_config(config_kwargs, "top_p", args.top_p)
+    add_optional_config(config_kwargs, "top_k", args.top_k)
+    add_optional_config(config_kwargs, "min_p", args.min_p)
+    add_optional_config(config_kwargs, "repetition_penalty", args.repetition_penalty)
+    add_optional_config(
+        config_kwargs,
+        "scale_rewards",
+        normalize_scale_rewards(args.scale_rewards),
+    )
+    add_optional_config(config_kwargs, "loss_type", args.loss_type)
+    add_optional_config(config_kwargs, "epsilon_high", args.epsilon_high)
+    if args.mask_truncated_completions:
+        config_kwargs["mask_truncated_completions"] = True
+    return config_kwargs
+
+
+def write_oracle_run_record(
+    path: str | None,
+    *,
+    args: argparse.Namespace,
+    resolved_config: dict[str, Any],
+    log_history: list[dict[str, Any]],
+    dataset_digest: str,
+    model_digest: str,
+) -> Path | None:
+    if path is None:
+        return None
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "args": vars(args),
+        "dataset_digest": dataset_digest,
+        "log_history": log_history,
+        "model_digest": model_digest,
+        "resolved_config": resolved_config,
+    }
+    rendered = json.dumps(payload, sort_keys=True, indent=2) + "\n"
+    if output.exists():
+        raise FileExistsError(f"oracle run record already exists: {output}")
+    output.write_text(rendered, encoding="utf-8")
+    return output
+
+
+def _raw_dataset_digest(dataset: Any) -> str:
+    """Match the FSDP GRPO digest over immutable question/answer rows."""
+
+    digest = hashlib.sha256()
+    for index in range(len(dataset)):
+        row = dataset[index]
+        digest.update(str(row["question"]).encode())
+        digest.update(b"\0")
+        digest.update(str(row["answer"]).encode())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def build_grpo_config(**kwargs: Any) -> Any:
     """Build GRPOConfig while tolerating small TRL API differences."""
+    from trl import GRPOConfig
+
     valid_fields = {field.name for field in fields(GRPOConfig)}
     filtered = {key: value for key, value in kwargs.items() if key in valid_fields}
     dropped = sorted(set(kwargs) - valid_fields)
@@ -124,44 +215,14 @@ def build_grpo_config(**kwargs: Any) -> GRPOConfig:
 
 
 def main() -> None:
+    from transformers import AutoTokenizer
+    from trl import GRPOTrainer
+
     args = parse_args()
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     train_dataset = build_dataset(args.split, args.dataset_limit, tokenizer)
 
-    config_kwargs: dict[str, Any] = dict(
-        output_dir=args.output_dir,
-        max_steps=args.max_steps,
-        num_generations=args.num_generations,
-        per_device_train_batch_size=args.per_device_train_batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        learning_rate=args.learning_rate,
-        beta=args.beta,
-        max_prompt_length=args.max_prompt_length,
-        max_completion_length=args.max_completion_length,
-        logging_strategy="steps",
-        logging_steps=args.logging_steps,
-        save_steps=args.save_steps,
-        save_strategy="steps",
-        save_total_limit=2,
-        bf16=True,
-        gradient_checkpointing=True,
-        remove_unused_columns=False,
-        log_completions=True,
-        num_completions_to_print=2,
-        report_to=args.report_to,
-        log_on_each_node=False,
-    )
-    add_optional_config(config_kwargs, "temperature", args.temperature)
-    add_optional_config(config_kwargs, "top_p", args.top_p)
-    add_optional_config(config_kwargs, "top_k", args.top_k)
-    add_optional_config(config_kwargs, "min_p", args.min_p)
-    add_optional_config(config_kwargs, "repetition_penalty", args.repetition_penalty)
-    add_optional_config(config_kwargs, "scale_rewards", normalize_scale_rewards(args.scale_rewards))
-    add_optional_config(config_kwargs, "loss_type", args.loss_type)
-    add_optional_config(config_kwargs, "epsilon_high", args.epsilon_high)
-    if args.mask_truncated_completions:
-        config_kwargs["mask_truncated_completions"] = True
-
+    config_kwargs = build_training_config_kwargs(args)
     training_args = build_grpo_config(**config_kwargs)
 
     trainer = GRPOTrainer(
@@ -172,6 +233,29 @@ def main() -> None:
     )
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
+    if args.run_record is not None:
+        from datasets import load_dataset
+        from train.checkpointing import resolve_hf_checkpoint_source
+
+        model_source = resolve_hf_checkpoint_source(args.model)
+        source_dataset = load_dataset("openai/gsm8k", "main", split=args.split)
+        if args.dataset_limit is not None:
+            source_dataset = source_dataset.select(
+                range(min(args.dataset_limit, len(source_dataset)))
+            )
+        resolved_training_config = (
+            training_args.to_dict()
+            if hasattr(training_args, "to_dict")
+            else dict(config_kwargs)
+        )
+        write_oracle_run_record(
+            args.run_record,
+            args=args,
+            resolved_config=resolved_training_config,
+            log_history=[dict(row) for row in trainer.state.log_history],
+            dataset_digest=_raw_dataset_digest(source_dataset),
+            model_digest=model_source.revision,
+        )
 
 
 if __name__ == "__main__":

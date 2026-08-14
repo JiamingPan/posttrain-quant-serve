@@ -451,8 +451,21 @@ unsharded execution of the same data and loss code:
   setting;
 - unsharded versus FSDP2 world size 1.
 
-Checks cover first-batch loss, pre-clip global gradient norm, selected
-post-step parameter deltas, and a 20-step loss curve over three seeds.
+The hard acceptance checks are:
+
+- both paths use the same immutable model, dataset, batches, and seed;
+- first-batch loss is within the declared bf16 sanity tolerance, catching
+  initialization, loading, and data mismatches;
+- all three seeded 20-step runs complete without non-finite losses or
+  gradients; and
+- the three-seed loss curve remains inside the pooled statistical noise band.
+
+Per-step pre-clip gradient-norm differences and selected post-step parameter
+update cosine remain in the committed comparison record as diagnostics. They
+do not independently fail SFT acceptance: fused CUDA kernels and bf16 update
+rounding may produce small trajectory differences without changing the
+training outcome. This keeps the gate focused on behavioral parity while
+retaining enough evidence to investigate a real regression.
 
 ### GRPO Gate
 

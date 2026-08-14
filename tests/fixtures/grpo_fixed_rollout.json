@@ -1,0 +1,28 @@
+{
+  "current_logps": [
+    [-0.1, -0.4, -0.3],
+    [-0.4, -0.1, -0.2]
+  ],
+  "old_logps": [
+    [-0.2, -0.2, -0.3],
+    [-0.2, -0.1, -0.1]
+  ],
+  "ref_logps": [
+    [-0.15, -0.3, -0.3],
+    [-0.35, -0.2, -0.2]
+  ],
+  "advantages": [0.75, -0.25],
+  "completion_mask": [
+    [1, 1, 0],
+    [1, 1, 0]
+  ],
+  "epsilon_low": 0.2,
+  "epsilon_high": 0.1,
+  "beta": 0.05,
+  "max_completion_length": 3,
+  "expected_loss_sum": -0.9837399336895738,
+  "expected_policy_loss_sum": -0.984365376538991,
+  "expected_kl_sum": 0.012508856988345363,
+  "expected_clip_ratio": 0.25,
+  "expected_normalized_loss": -0.16395665561492898
+}

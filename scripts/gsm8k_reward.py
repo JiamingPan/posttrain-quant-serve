@@ -26,13 +26,19 @@ PROMPT_LEAK_AFTER_ANSWER_RE = re.compile(
 PROMPT_LEAK_AFTER_ANSWER_PENALTY = 0.25
 
 
-def build_gsm8k_chat_text(tokenizer: Any, question: str) -> str:
-    user_msg = (
+def gsm8k_user_text(question: str) -> str:
+    """Return the single source of truth for the GSM8K user instruction."""
+
+    return (
         "Solve the math problem. Show the reasoning briefly. End with exactly one final line "
         "in the form #### <answer>, then stop. Do not write another problem or dialogue "
         "after the answer.\n\n"
         f"Problem: {question}"
     )
+
+
+def build_gsm8k_chat_text(tokenizer: Any, question: str) -> str:
+    user_msg = gsm8k_user_text(question)
     return tokenizer.apply_chat_template(
         [{"role": "user", "content": user_msg}],
         tokenize=False,

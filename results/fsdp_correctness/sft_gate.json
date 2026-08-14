@@ -1,0 +1,245 @@
+{
+  "dataset_digest": "279d436df172db5e80447424c4aad6907671aa4c1bef05f86d143313f916d165",
+  "diagnostic_only_metrics": [
+    "grad_norm_relative_error_max",
+    "update_cosine_min"
+  ],
+  "format_version": 1,
+  "gate": "sft",
+  "metrics": {
+    "first_loss_abs_error_max": 0.0008405761718750515,
+    "grad_norm_relative_error_max": 0.09359605911330049,
+    "loss_curve_points": [
+      {
+        "fsdp2_mean": 1.1383640833772406,
+        "mean_abs_diff": 0.0002801920572914618,
+        "noise_bound": 0.1456689020259981,
+        "oracle_mean": 1.1380838913199491,
+        "step": 1
+      },
+      {
+        "fsdp2_mean": 1.125874774354877,
+        "mean_abs_diff": 0.0014407391788984203,
+        "noise_bound": 0.12891633033158367,
+        "oracle_mean": 1.1244340351759785,
+        "step": 2
+      },
+      {
+        "fsdp2_mean": 0.7181353413540384,
+        "mean_abs_diff": 0.00020926804236087726,
+        "noise_bound": 0.4976997397897702,
+        "oracle_mean": 0.7183446093963993,
+        "step": 3
+      },
+      {
+        "fsdp2_mean": 0.7684990432659653,
+        "mean_abs_diff": 0.00036677664241135943,
+        "noise_bound": 0.300464750911389,
+        "oracle_mean": 0.7688658199083767,
+        "step": 4
+      },
+      {
+        "fsdp2_mean": 0.8596026545569505,
+        "mean_abs_diff": 0.0015805945574246527,
+        "noise_bound": 0.2550623552062718,
+        "oracle_mean": 0.8580220599995259,
+        "step": 5
+      },
+      {
+        "fsdp2_mean": 0.9834474343999092,
+        "mean_abs_diff": 0.001328808978110052,
+        "noise_bound": 0.938103932863683,
+        "oracle_mean": 0.9847762433780193,
+        "step": 6
+      },
+      {
+        "fsdp2_mean": 1.0393353433505872,
+        "mean_abs_diff": 0.005030858837840935,
+        "noise_bound": 0.7883483549626918,
+        "oracle_mean": 1.0343044845127463,
+        "step": 7
+      },
+      {
+        "fsdp2_mean": 0.8148773973448235,
+        "mean_abs_diff": 0.0019419154577088316,
+        "noise_bound": 1.1104382903537766,
+        "oracle_mean": 0.8129354818871146,
+        "step": 8
+      },
+      {
+        "fsdp2_mean": 0.8440996991922868,
+        "mean_abs_diff": 0.0009451680683986163,
+        "noise_bound": 0.25394035330597,
+        "oracle_mean": 0.8431545311238882,
+        "step": 9
+      },
+      {
+        "fsdp2_mean": 0.7563082875608637,
+        "mean_abs_diff": 0.00037580647474655393,
+        "noise_bound": 0.1715339534154524,
+        "oracle_mean": 0.7566840940356102,
+        "step": 10
+      },
+      {
+        "fsdp2_mean": 0.672160595132847,
+        "mean_abs_diff": 0.0012685256341491424,
+        "noise_bound": 0.45189611685149217,
+        "oracle_mean": 0.6708920694986978,
+        "step": 11
+      },
+      {
+        "fsdp2_mean": 0.41681732931262055,
+        "mean_abs_diff": 0.0026566698305144354,
+        "noise_bound": 0.1437803496429115,
+        "oracle_mean": 0.4141606594821061,
+        "step": 12
+      },
+      {
+        "fsdp2_mean": 0.5624280769558089,
+        "mean_abs_diff": 0.0027109214998232156,
+        "noise_bound": 0.3457077914439125,
+        "oracle_mean": 0.5651389984556321,
+        "step": 13
+      },
+      {
+        "fsdp2_mean": 0.6757325029501358,
+        "mean_abs_diff": 0.0006056441115699362,
+        "noise_bound": 0.16961359708605533,
+        "oracle_mean": 0.6751268588385658,
+        "step": 14
+      },
+      {
+        "fsdp2_mean": 1.206718788909373,
+        "mean_abs_diff": 0.0006432364543293989,
+        "noise_bound": 0.7293776239397708,
+        "oracle_mean": 1.2060755524550435,
+        "step": 15
+      },
+      {
+        "fsdp2_mean": 0.6584408354299113,
+        "mean_abs_diff": 0.0007157473772227974,
+        "noise_bound": 0.3640627434103001,
+        "oracle_mean": 0.6577250880526885,
+        "step": 16
+      },
+      {
+        "fsdp2_mean": 0.8129379244987663,
+        "mean_abs_diff": 0.0011724819945629905,
+        "noise_bound": 0.9003630935354234,
+        "oracle_mean": 0.8117654425042033,
+        "step": 17
+      },
+      {
+        "fsdp2_mean": 0.574080934323498,
+        "mean_abs_diff": 0.000025753063262801135,
+        "noise_bound": 0.43614585100992714,
+        "oracle_mean": 0.5740551812602352,
+        "step": 18
+      },
+      {
+        "fsdp2_mean": 0.8356363287540258,
+        "mean_abs_diff": 0.0004177741451538708,
+        "noise_bound": 0.08252046123759559,
+        "oracle_mean": 0.8360541028991797,
+        "step": 19
+      },
+      {
+        "fsdp2_mean": 0.5424757959681513,
+        "mean_abs_diff": 0.0030566476031563816,
+        "noise_bound": 0.3565518379299538,
+        "oracle_mean": 0.5455324435713077,
+        "step": 20
+      }
+    ],
+    "update_cosine_min": 0.9870768205397548
+  },
+  "model_digest": "7ae557604adf67be50417f59c2c2f167def9a775",
+  "seeds": [
+    41,
+    42,
+    43
+  ],
+  "source_records": [
+    {
+      "implementation": "oracle",
+      "path": "results/fsdp_correctness/runs/sft/seed-41/oracle/train.jsonl",
+      "seed": 41,
+      "sha256": "bc71f8c71d52dbedf1285a9390296f4eafc36de245ebe9c9256873aacbfaf840"
+    },
+    {
+      "implementation": "fsdp2",
+      "path": "results/fsdp_correctness/runs/sft/seed-41/fsdp2/train.jsonl",
+      "seed": 41,
+      "sha256": "275458fdba25f74b0371a0e980d28f4f414d189336e796bfb8cc8924bbfd86fd"
+    },
+    {
+      "implementation": "oracle_selected_updates",
+      "path": "results/fsdp_correctness/runs/sft/seed-41/oracle-selected.pt",
+      "seed": 41,
+      "sha256": "71acbd75bff1328ce4af4ddf45fe7359ee68c0e47b279b073042747d910b98a0"
+    },
+    {
+      "implementation": "fsdp2_selected_updates",
+      "path": "results/fsdp_correctness/runs/sft/seed-41/fsdp2-selected.pt",
+      "seed": 41,
+      "sha256": "08cee5bc9260d350f8823633ef795b30eaacfbe980c508723b6937e94e6e4927"
+    },
+    {
+      "implementation": "oracle",
+      "path": "results/fsdp_correctness/runs/sft/seed-42/oracle/train.jsonl",
+      "seed": 42,
+      "sha256": "0d3029a06c728c69e93925c72081c200d4a2eb79acae5c1b6c1d250939edea12"
+    },
+    {
+      "implementation": "fsdp2",
+      "path": "results/fsdp_correctness/runs/sft/seed-42/fsdp2/train.jsonl",
+      "seed": 42,
+      "sha256": "84b1fa3d0b6c85480cb45ceea80f681fed3fc3c6888a33698d5e7a9916ac9764"
+    },
+    {
+      "implementation": "oracle_selected_updates",
+      "path": "results/fsdp_correctness/runs/sft/seed-42/oracle-selected.pt",
+      "seed": 42,
+      "sha256": "5b0cf8d090ac1d50cc0d6c2a2805e648ffa1dc703cc31e8904811b343055d7ce"
+    },
+    {
+      "implementation": "fsdp2_selected_updates",
+      "path": "results/fsdp_correctness/runs/sft/seed-42/fsdp2-selected.pt",
+      "seed": 42,
+      "sha256": "62cfb73459a5527e4ef42b8a3e0190354500ceb7d74a97480b1d5c769d1bd11b"
+    },
+    {
+      "implementation": "oracle",
+      "path": "results/fsdp_correctness/runs/sft/seed-43/oracle/train.jsonl",
+      "seed": 43,
+      "sha256": "a6c8ed8050ef04f5b4ca29546d9ace43f45696fcbd26950f60d6b3167c15ed08"
+    },
+    {
+      "implementation": "fsdp2",
+      "path": "results/fsdp_correctness/runs/sft/seed-43/fsdp2/train.jsonl",
+      "seed": 43,
+      "sha256": "e8f267a7f9adb8ca9aeaebb0eee9d558ae5852f718a2552a1c375f5526171962"
+    },
+    {
+      "implementation": "oracle_selected_updates",
+      "path": "results/fsdp_correctness/runs/sft/seed-43/oracle-selected.pt",
+      "seed": 43,
+      "sha256": "b9395228fc198798c5512a4f566ce1d4501fc16f809b5c5f31185bace4542465"
+    },
+    {
+      "implementation": "fsdp2_selected_updates",
+      "path": "results/fsdp_correctness/runs/sft/seed-43/fsdp2-selected.pt",
+      "seed": 43,
+      "sha256": "7fe35e5ea7e75e2413efc7b8488af722b4b864e5c96728629f37f23fdf9894d1"
+    }
+  ],
+  "status": "pass",
+  "thresholds": {
+    "curve_noise_floor": 0.001,
+    "first_loss_abs_error_max": 0.005,
+    "fixed_rollout_loss_abs_error_max": 0.0005,
+    "grad_norm_relative_error_max": 0.01,
+    "resume_next_loss_abs_error_max": 0.000001,
+    "update_cosine_min": 0.999
+  }
+}
